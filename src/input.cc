@@ -50,6 +50,7 @@ static void buildNormalizedQwertyKeys();
 static void _GNW95_process_key(KeyboardData* data);
 static int inputGetHookMouseButton(int sdlButton);
 static void inputHandleMouseClickHook(int sdlButton, bool pressed);
+static void inputHandleProgramActivationChange(bool isActive);
 
 // 0x51E23C GNW95_repeat_rate
 static int gKeyboardKeyRepeatRate = 80;
@@ -135,6 +136,29 @@ static void inputHandleMouseClickHook(int sdlButton, bool pressed)
     if (hookButton == -1) return;
 
     ScriptHookCall(HOOK_MOUSECLICK, 0, { pressed ? 1 : 0, hookButton }).call();
+}
+
+static void inputHandleProgramActivationChange(bool isActive)
+{
+    if (gProgramIsActive == isActive) {
+        return;
+    }
+
+    gProgramIsActive = isActive;
+
+    // Cmd-tab on macOS can leave modifier/key repeat state and mouse mode out
+    // of sync with SDL's actual app activation state. Drop queued input on
+    // both transitions and reapply the desired mouse mode on return.
+    keyboardReset();
+    inputEventQueueReset();
+
+    if (isActive) {
+        mouseDeviceInitMode();
+        windowRefreshAll(&_scr_size);
+        audioEngineResume();
+    } else {
+        audioEnginePause();
+    }
 }
 
 // 0x4C8A70
@@ -1047,18 +1071,15 @@ void _GNW95_process_message()
             case SDL_WINDOWEVENT_SIZE_CHANGED:
                 handleWindowSizeChanged();
                 break;
+            case SDL_WINDOWEVENT_SHOWN:
+            case SDL_WINDOWEVENT_RESTORED:
             case SDL_WINDOWEVENT_FOCUS_GAINED:
-                gProgramIsActive = true;
-                if (!mouseDeviceInitMode()) {
-                    debugPrint("Failed to initialize mouse mode on focus gained: %s\n", SDL_GetError());
-                }
-                windowRefreshAll(&_scr_size);
-                audioEngineResume();
+                inputHandleProgramActivationChange(true);
                 break;
+            case SDL_WINDOWEVENT_HIDDEN:
+            case SDL_WINDOWEVENT_MINIMIZED:
             case SDL_WINDOWEVENT_FOCUS_LOST:
-                gProgramIsActive = false;
-                mouseDeviceInitMode();
-                audioEnginePause();
+                inputHandleProgramActivationChange(false);
                 break;
             }
             break;

@@ -12,6 +12,8 @@ FpsLimiter::FpsLimiter(unsigned int fps)
     , _idleGraceMs(400)
     , _ticks(0)
     , _lastActivityTicks(0)
+    , _lastPresentTicks(0)
+    , _lastTargetFps(fps != 0 ? fps : 60)
 {
 }
 
@@ -25,9 +27,21 @@ void FpsLimiter::notifyActivity()
     _lastActivityTicks = SDL_GetTicks();
 }
 
+void FpsLimiter::notifyPresent()
+{
+    _lastPresentTicks = SDL_GetTicks();
+}
+
 void FpsLimiter::throttle()
 {
     unsigned int now = SDL_GetTicks();
+
+    // After a long stretch with neither input nor a single presented frame
+    // (a genuinely static screen - ambient animation like water still counts
+    // as presents and keeps the regular idle level), sink deeper.
+    constexpr unsigned int kDeepGraceMs = 20000;
+    constexpr unsigned int kDeepIdleFps = 5;
+    bool deepIdle = false;
 
     unsigned int targetFps = _fps;
     if (!gProgramIsActive) {
@@ -36,11 +50,18 @@ void FpsLimiter::throttle()
     } else if (now - _lastActivityTicks > _idleGraceMs) {
         // Nothing has been drawn for a while - the screen is static.
         targetFps = _idleFps;
+
+        if (now - _lastActivityTicks > kDeepGraceMs
+            && _lastPresentTicks != 0 && now - _lastPresentTicks > kDeepGraceMs) {
+            targetFps = kDeepIdleFps;
+            deepIdle = true;
+        }
     }
 
     if (targetFps == 0) {
         targetFps = 1;
     }
+    _lastTargetFps = targetFps;
 
     const unsigned int minFrameTime = 1000 / _fps;
     const unsigned int budget = 1000 / targetFps;
@@ -75,8 +96,9 @@ void FpsLimiter::throttle()
             break;
         }
 
-        // Unfocused windows tolerate slower reaction - nap in bigger chunks.
-        const unsigned int chunkMs = gProgramIsActive ? 16 : 50;
+        // Unfocused windows and deep idle tolerate slower reaction - nap in
+        // bigger chunks to cut the number of CPU wakeups.
+        const unsigned int chunkMs = !gProgramIsActive ? 50 : (deepIdle ? 33 : 16);
         const unsigned int remaining = budget - elapsed;
         SDL_Delay(remaining < chunkMs ? remaining : chunkMs);
     }

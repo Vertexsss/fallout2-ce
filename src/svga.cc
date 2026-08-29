@@ -53,10 +53,6 @@ FpsLimiter sharedFpsLimiter;
 static bool gRenderDirty = false;
 static SDL_Rect gRenderDirtyRect;
 
-// A palette write happened; the full re-conversion of the indexed surface is
-// deferred to the next present, so several palette ticks between presents
-// cost one blit instead of several.
-static bool gPaletteBlitPending = false;
 
 // Which palette indices currently appear on the game surface. Lets ambient
 // palette animation (color cycling) be skipped entirely when the cycled
@@ -73,9 +69,9 @@ static constexpr int kCycleRangeStart = 229;
 static SDL_Rect gCycleBBox;
 static bool gCycleBBoxNonEmpty = false;
 
-// Scope of the pending palette re-conversion: full surface, or just a rect.
-static bool gPaletteBlitFull = false;
-static SDL_Rect gPaletteBlitRect;
+// Rendering statistics for the FPS counter (power tuning aid).
+static int gStatPresents = 0;
+static long long gStatUploadBytes = 0;
 
 static void paletteRebuildPresence()
 {
@@ -351,19 +347,8 @@ void directDrawSetPaletteInRange(unsigned char* palette, int start, int count)
         if (visibleChange) {
             const bool cycleOnly = start >= kCycleRangeStart && start + count <= 256;
             if (cycleOnly && gPalettePresenceValid && gCycleBBoxNonEmpty) {
-                if (gPaletteBlitPending) {
-                    if (!gPaletteBlitFull) {
-                        SDL_UnionRect(&gPaletteBlitRect, &gCycleBBox, &gPaletteBlitRect);
-                    }
-                } else {
-                    gPaletteBlitFull = false;
-                    gPaletteBlitRect = gCycleBBox;
-                }
-                gPaletteBlitPending = true;
                 renderMarkDirtyAmbient(&gCycleBBox);
             } else {
-                gPaletteBlitPending = true;
-                gPaletteBlitFull = true;
                 renderMarkDirtyAmbient(nullptr);
             }
         }
@@ -387,8 +372,6 @@ void directDrawSetPalette(unsigned char* palette)
 
         // Full palette sets come from fades - keep them counted as activity
         // so fades run at full frame rate.
-        gPaletteBlitPending = true;
-        gPaletteBlitFull = true;
         renderMarkDirty(nullptr);
     }
 }
@@ -432,8 +415,7 @@ void _GNW95_ShowRect(unsigned char* src, int srcPitch, int unused, int srcX, int
     SDL_Rect destRect;
     destRect.x = destX;
     destRect.y = destY;
-    SDL_BlitSurface(gSdlSurface, &srcRect, gSdlTextureSurface, &destRect);
-
+    // Conversion to RGB happens once per presented frame in renderPresent.
     renderMarkDirty(&srcRect);
 }
 
@@ -454,7 +436,6 @@ void _GNW95_zero_vid_mem()
 
     gPalettePresenceValid = false;
 
-    SDL_BlitSurface(gSdlSurface, nullptr, gSdlTextureSurface, nullptr);
     renderMarkDirty(nullptr);
 }
 
@@ -521,8 +502,6 @@ static void destroyRenderer()
     // The recorded dirty region is only meaningful for the surface it was
     // recorded against - forget it before that surface goes away.
     gRenderDirty = false;
-    gPaletteBlitPending = false;
-    gPaletteBlitFull = false;
 
     if (gSdlTextureSurface != nullptr) {
         SDL_FreeSurface(gSdlTextureSurface);
@@ -546,10 +525,8 @@ void handleWindowSizeChanged()
     destroyRenderer();
     createRenderer(screenGetWidth(), screenGetHeight());
 
-    // The new surface starts out blank - re-convert the game surface into it
-    // on the next present and upload it in full.
-    gPaletteBlitPending = true;
-    gPaletteBlitFull = true;
+    // The new surface starts out blank - the next present re-converts and
+    // uploads the game surface in full.
     renderMarkDirty(nullptr);
 
     mouseDeviceRefreshWindowMapping();
@@ -572,15 +549,23 @@ void renderFpsCounter()
 
     sampleFrames++;
 
+    static double presentsPerSec = 0.0;
+    static double uploadMbPerSec = 0.0;
+
     unsigned int elapsed = now - sampleStartTicks;
     if (elapsed >= 500) {
         fps = sampleFrames * 1000.0 / elapsed;
+        presentsPerSec = gStatPresents * 1000.0 / elapsed;
+        uploadMbPerSec = gStatUploadBytes * 1000.0 / elapsed / (1024.0 * 1024.0);
         sampleFrames = 0;
+        gStatPresents = 0;
+        gStatUploadBytes = 0;
         sampleStartTicks = now;
     }
 
-    char text[32];
-    snprintf(text, sizeof(text), "FPS: %.1f", fps);
+    char text[64];
+    snprintf(text, sizeof(text), "FPS: %.1f  P: %.0f/s  U: %.1fMB/s  T: %u",
+        fps, presentsPerSec, uploadMbPerSec, sharedFpsLimiter.lastTargetFps());
 
     ScopedFont font(101);
 
@@ -608,8 +593,9 @@ void renderFpsCounter()
     rect.y = 0;
     rect.w = width;
     rect.h = height;
-    SDL_BlitSurface(gSdlSurface, &rect, gSdlTextureSurface, &rect);
-    renderMarkDirty(&rect);
+    // Ambient: the counter itself must not keep the idle limiter awake,
+    // otherwise it distorts the very numbers it displays.
+    renderMarkDirtyAmbient(&rect);
 }
 
 void renderMarkDirty(const SDL_Rect* rect)
@@ -659,21 +645,18 @@ void renderPresent()
         return;
     }
 
-    // A palette change re-colors the affected pixels - re-convert the indexed
-    // surface once, now that we know this frame is actually being presented.
-    // Cycling-only changes touch just the recorded bounding box.
-    if (gPaletteBlitPending) {
-        gPaletteBlitPending = false;
-        if (gSdlSurface != nullptr) {
-            if (gPaletteBlitFull) {
-                SDL_BlitSurface(gSdlSurface, nullptr, gSdlTextureSurface, nullptr);
-            } else {
-                SDL_Rect r = gPaletteBlitRect;
-                SDL_BlitSurface(gSdlSurface, &r, gSdlTextureSurface, &r);
-            }
-        }
-        gPaletteBlitFull = false;
+    // Convert the dirty union from indexed to RGB exactly once per presented
+    // frame, with the palette as it stands now. Layered redraws of the same
+    // area within a frame no longer convert repeatedly.
+    if (gSdlSurface != nullptr) {
+        SDL_Rect src = gRenderDirtyRect;
+        SDL_Rect dst = gRenderDirtyRect;
+        SDL_BlitSurface(gSdlSurface, &src, gSdlTextureSurface, &dst);
     }
+
+    sharedFpsLimiter.notifyPresent();
+    gStatPresents++;
+    gStatUploadBytes += static_cast<long long>(gRenderDirtyRect.w) * gRenderDirtyRect.h * gSdlTextureSurface->format->BytesPerPixel;
 
     const unsigned char* pixels = static_cast<const unsigned char*>(gSdlTextureSurface->pixels)
         + static_cast<size_t>(gRenderDirtyRect.y) * gSdlTextureSurface->pitch

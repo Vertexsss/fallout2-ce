@@ -583,6 +583,18 @@ void _mouse_info()
                 if (!touch_get_pan_mode() && gesture.numberOfTouches == 1) {
                     _mouse_simulate_input(gesture.x - prevx, gesture.y - prevy, 0);
                 } else if (touch_get_pan_mode() || gesture.numberOfTouches == 2) {
+                    // Windowed screens (inventory, dialogs) interpret the
+                    // wheel as list scrolling - keep that behavior there.
+                    if (touch_get_touchscreen_mode()) {
+                        gMouseWheelX = (prevx - gesture.x) / 2;
+                        gMouseWheelY = (gesture.y - prevy) / 2;
+                        if (gMouseWheelX != 0 || gMouseWheelY != 0) {
+                            gMouseEvent |= MOUSE_EVENT_WHEEL;
+                            _raw_buttons |= MOUSE_EVENT_WHEEL;
+                        }
+                        break;
+                    }
+
                     // Pixel-granular pan: the map follows the fingers 1:1 and
                     // smoothly (sub-tile viewport bias), tracking velocity
                     // for the release fling.

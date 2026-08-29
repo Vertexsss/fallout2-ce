@@ -647,23 +647,20 @@ static bool mapTryStepCenter(int stepsX, int stepsY)
 
 int mapScrollPixels(int dxPixels, int dyPixels)
 {
-    static int biasX = 0;
-    static int biasY = 0;
+    // The applied viewport bias is the single source of truth - forced
+    // re-centering (map load, teleport) resets it, and reading it back here
+    // keeps this function in sync with no state of its own.
+    int shownX;
+    int shownY;
+    tileGetViewPixelBias(&shownX, &shownY);
 
-    biasX += dxPixels;
-    biasY += dyPixels;
+    int biasX = shownX + dxPixels;
+    int biasY = shownY + dyPixels;
 
     int stepsX = mapFloorDiv(biasX, 32);
     int stepsY = mapFloorDiv(biasY, 24);
     int residualX = biasX - stepsX * 32;
     int residualY = biasY - stepsY * 24;
-
-    // Bias as currently shown on screen - the fallback for a blocked axis so
-    // the view freezes exactly where it is (no desync, no tile-sized jumps
-    // when moving away from a boundary).
-    int shownX;
-    int shownY;
-    tileGetViewPixelBias(&shownX, &shownY);
 
     bool movedX = stepsX == 0;
     bool movedY = stepsY == 0;
@@ -688,9 +685,6 @@ int mapScrollPixels(int dxPixels, int dyPixels)
     int finalBiasX = movedX ? residualX : shownX;
     int finalBiasY = movedY ? residualY : shownY;
     tileSetViewPixelBias(finalBiasX, finalBiasY);
-
-    biasX = finalBiasX;
-    biasY = finalBiasY;
 
     tileWindowRefresh();
 

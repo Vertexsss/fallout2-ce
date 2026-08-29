@@ -34,6 +34,11 @@ static void audioEngineMixin(void* userData, Uint8* stream, int length);
 
 static SDL_AudioSpec gAudioEngineSpec;
 static SDL_AudioDeviceID gAudioEngineDeviceId = -1;
+
+// Consecutive mixer callbacks that had nothing to mix, and whether the
+// device is currently paused because of that.
+static SDL_atomic_t gAudioSilentCallbacks;
+static bool gAudioPausedBySilence = false;
 static AudioEngineSoundBuffer gAudioEngineSoundBuffers[AUDIO_ENGINE_SOUND_BUFFERS];
 
 static bool audioEngineIsInitialized()
@@ -54,11 +59,14 @@ static void audioEngineMixin(void* userData, Uint8* stream, int length)
         return;
     }
 
+    bool mixedAny = false;
+
     for (int index = 0; index < AUDIO_ENGINE_SOUND_BUFFERS; index++) {
         AudioEngineSoundBuffer* soundBuffer = &(gAudioEngineSoundBuffers[index]);
         std::lock_guard<std::recursive_mutex> lock(soundBuffer->mutex);
 
         if (soundBuffer->active && soundBuffer->playing) {
+            mixedAny = true;
             int srcFrameSize = soundBuffer->bitsPerSample / 8 * soundBuffer->channels;
 
             unsigned char buffer[1024];
@@ -120,6 +128,12 @@ static void audioEngineMixin(void* userData, Uint8* stream, int length)
             }
         }
     }
+
+    if (mixedAny) {
+        SDL_AtomicSet(&gAudioSilentCallbacks, 0);
+    } else {
+        SDL_AtomicAdd(&gAudioSilentCallbacks, 1);
+    }
 }
 
 bool audioEngineInit()
@@ -162,8 +176,26 @@ void audioEnginePause()
     }
 }
 
+void audioEngineMaintenance()
+{
+    if (!audioEngineIsInitialized()) {
+        return;
+    }
+
+    // ~5 seconds of silent callbacks at 44100/1024 = ~43 callbacks/s.
+    constexpr int kSilentCallbacksBeforePause = 215;
+
+    if (!gAudioPausedBySilence
+        && SDL_AtomicGet(&gAudioSilentCallbacks) >= kSilentCallbacksBeforePause) {
+        gAudioPausedBySilence = true;
+        SDL_PauseAudioDevice(gAudioEngineDeviceId, 1);
+    }
+}
+
 void audioEngineResume()
 {
+    gAudioPausedBySilence = false;
+    SDL_AtomicSet(&gAudioSilentCallbacks, 0);
     if (audioEngineIsInitialized()) {
         SDL_PauseAudioDevice(gAudioEngineDeviceId, 0);
     }
@@ -311,6 +343,13 @@ bool audioEngineSoundBufferPlay(int soundBufferIndex, unsigned int flags)
     }
 
     soundBuffer->playing = true;
+
+    // Wake the device if it was paused for silence.
+    if (gAudioPausedBySilence) {
+        gAudioPausedBySilence = false;
+        SDL_AtomicSet(&gAudioSilentCallbacks, 0);
+        SDL_PauseAudioDevice(gAudioEngineDeviceId, 0);
+    }
 
     if ((flags & AUDIO_ENGINE_SOUND_BUFFER_PLAY_LOOPING) != 0) {
         soundBuffer->looping = true;

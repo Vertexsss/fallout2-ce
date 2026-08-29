@@ -7,6 +7,7 @@
 #include "art.h"
 #include "art_defs.h"
 #include "audio.h"
+#include "audio_engine.h"
 #include "combat.h"
 #include "content_config.h"
 #include "debug.h"
@@ -1558,6 +1559,7 @@ int soundPlayFile(const char* name)
 void _gsound_bkg_proc()
 {
     soundContinueAll();
+    audioEngineMaintenance();
 }
 
 // 0x451A08

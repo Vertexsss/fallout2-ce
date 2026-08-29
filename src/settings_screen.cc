@@ -6,6 +6,7 @@
 #include "cycle.h"
 #include "input.h"
 #include "kb.h"
+#include "platform/ios/quick_toolbar.h"
 #include "settings.h"
 #include "svga.h"
 #include "text_font.h"
@@ -105,6 +106,20 @@ void cycleNext()
     cycleSetSpeedFactor(next);
 }
 
+const char* toolbarText()
+{
+    return settings.ui.quick_toolbar_visible ? "ON" : "OFF";
+}
+
+void toolbarNext()
+{
+    settings.ui.quick_toolbar_visible = !settings.ui.quick_toolbar_visible;
+    quickToolbarSetEnabled(settings.ui.quick_toolbar_visible);
+    if (settings.ui.quick_toolbar_visible) {
+        quickToolbarShow();
+    }
+}
+
 const char* fpsCounterText()
 {
     return settings.debug.show_fps ? "ON" : "OFF";
@@ -121,6 +136,7 @@ constexpr Row kRows[] = {
     { "IDLE FPS", idleFpsText, idleFpsNext },
     { "COLOR CYCLE SPEED", cycleText, cycleNext },
     { "FPS COUNTER", fpsCounterText, fpsCounterNext },
+    { "TOUCH TOOLBAR", toolbarText, toolbarNext },
 };
 constexpr int kRowCount = static_cast<int>(sizeof(kRows) / sizeof(kRows[0]));
 constexpr int kWindowHeight = kTitleHeight + kRowCount * kRowHeight + kFooterHeight;

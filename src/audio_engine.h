@@ -14,6 +14,10 @@ namespace fallout {
 bool audioEngineInit();
 void audioEngineExit();
 void audioEnginePause();
+// Called periodically from the sound background ticker: pauses the device
+// after a stretch of fully silent callbacks so the OS audio stack stops
+// waking the process; the next buffer play resumes it.
+void audioEngineMaintenance();
 void audioEngineResume();
 int audioEngineCreateSoundBuffer(unsigned int size, int bitsPerSample, int channels, int rate);
 bool audioEngineSoundBufferRelease(int soundBufferIndex);

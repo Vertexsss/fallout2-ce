@@ -213,4 +213,11 @@ void touchOverlayToggleHighlight()
     paintButton(gHltButton, gHighlightActive);
 }
 
+void touchOverlayReleaseHighlight()
+{
+    if (gHighlightActive) {
+        touchOverlayToggleHighlight();
+    }
+}
+
 } // namespace fallout

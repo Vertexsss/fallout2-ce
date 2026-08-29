@@ -515,6 +515,11 @@ void _mouse_info()
                 }
             }
 
+            // Any tap that reaches the world releases the sticky item
+            // highlight, so its simulated Shift never turns movement taps
+            // into slow walking.
+            touchOverlayReleaseHighlight();
+
 #if __APPLE__ && TARGET_OS_IOS
             if (handleHudTapThrough(gesture)) {
                 goto tap_done;

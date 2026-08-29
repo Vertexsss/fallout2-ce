@@ -29,6 +29,11 @@ bool touchOverlayHandleTap(int x, int y);
 // Toggles the simulated-Shift item highlighting and repaints the button.
 void touchOverlayToggleHighlight();
 
+// Releases the highlight if it is on. Called before a world tap is simulated:
+// Shift also modifies movement (walk instead of run), so a held simulated
+// Shift would make every movement tap crawl.
+void touchOverlayReleaseHighlight();
+
 } // namespace fallout
 
 #endif // FALLOUT_TOUCH_OVERLAY_H_

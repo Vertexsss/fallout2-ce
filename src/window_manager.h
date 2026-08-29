@@ -256,6 +256,7 @@ int buttonDisable(int btn);
 int _win_set_button_rest_state(int btn, bool checked, int flags);
 int _win_group_radio_buttons(int buttonCount, int* btns);
 int _win_button_press_and_release(int btn);
+int _win_button_set_visual_pressed(int btn, bool pressed);
 
 // Allows to use RAII to dispose UI objects.
 template <auto DestroyFn>

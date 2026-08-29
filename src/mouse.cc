@@ -374,6 +374,21 @@ void mouseHideCursor()
     }
 }
 
+// Original buttons visibly depress when clicked; a synthetic tap is
+// instantaneous, so its pressed art would flash for a single frame. Emulate
+// a short hold instead: the pressed state lasts kSyntheticPressMs before
+// the release (and the button's action) goes through.
+constexpr unsigned int kSyntheticPressMs = 90;
+
+// Pipeline taps: keep the simulated mouse button held for a few frames.
+static int gSyntheticHoldButtons = 0;
+static unsigned int gSyntheticHoldUntil = 0;
+
+// HUD tap-through: the pressed button waiting for its visual release.
+static int gHudTapPressedBtn = -1;
+static int gHudTapPressedKeyCode = -1;
+static unsigned int gHudTapReleaseTicks = 0;
+
 #if __APPLE__ && TARGET_OS_IOS
 // Checks whether a tap lands on an interface-bar button and, if so,
 // injects the corresponding keyCode so the cursor never moves.
@@ -414,7 +429,17 @@ static bool handleHudTapThrough(const Gesture& gesture)
             if (keyCode == -1) {
                 break;
             }
-            enqueueInputEvent(keyCode);
+            // A quick second tap flushes the previous press immediately.
+            if (gHudTapPressedBtn != -1) {
+                _win_button_set_visual_pressed(gHudTapPressedBtn, false);
+                if (gHudTapPressedKeyCode != -1) {
+                    enqueueInputEvent(gHudTapPressedKeyCode);
+                }
+            }
+            _win_button_set_visual_pressed(button->id, true);
+            gHudTapPressedBtn = button->id;
+            gHudTapPressedKeyCode = keyCode;
+            gHudTapReleaseTicks = SDL_GetTicks() + kSyntheticPressMs;
             return true;
         }
     }
@@ -453,6 +478,16 @@ void _mouse_info()
 {
     if (!gMouseInitialized) {
         return;
+    }
+
+    // Pending synthetic HUD button release (see handleHudTapThrough).
+    if (gHudTapPressedBtn != -1 && SDL_GetTicks() >= gHudTapReleaseTicks) {
+        _win_button_set_visual_pressed(gHudTapPressedBtn, false);
+        if (gHudTapPressedKeyCode != -1) {
+            enqueueInputEvent(gHudTapPressedKeyCode);
+        }
+        gHudTapPressedBtn = -1;
+        gHudTapPressedKeyCode = -1;
     }
 
     if (gCursorIsHidden || _mouse_disabled) {
@@ -582,6 +617,16 @@ void _mouse_info()
                 } else if (gesture.numberOfTouches == 2) {
                     _mouse_simulate_input(gesture.x, gesture.y, MOUSE_STATE_RIGHT_BUTTON_DOWN);
                 }
+            }
+
+            // Stretch the tap into a short hold so engine buttons show
+            // their pressed art like they do for a real quick click.
+            if (gesture.numberOfTouches == 1) {
+                gSyntheticHoldButtons = MOUSE_STATE_LEFT_BUTTON_DOWN;
+                gSyntheticHoldUntil = SDL_GetTicks() + kSyntheticPressMs;
+            } else if (gesture.numberOfTouches == 2) {
+                gSyntheticHoldButtons = MOUSE_STATE_RIGHT_BUTTON_DOWN;
+                gSyntheticHoldUntil = SDL_GetTicks() + kSyntheticPressMs;
             }
         tap_done:
             break;
@@ -738,6 +783,16 @@ void _mouse_info()
     } else {
         x = 0;
         y = 0;
+    }
+
+    // Synthetic tap hold: keep reporting the button as pressed until the
+    // deadline, then let the natural release (button-up) go through.
+    if (gSyntheticHoldButtons != 0) {
+        if (SDL_GetTicks() < gSyntheticHoldUntil) {
+            buttons |= gSyntheticHoldButtons;
+        } else {
+            gSyntheticHoldButtons = 0;
+        }
     }
 
     // Mouse sensitivity only applies to relative movement. In windowed mode

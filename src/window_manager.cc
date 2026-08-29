@@ -2610,6 +2610,26 @@ void _GNW_button_refresh(Window* window, Rect* rect)
 }
 
 // 0x4D9AA0
+// Visual-only half of a button press for synthetic taps: draws the pressed
+// or normal art (with the click sound) without firing callbacks or queueing
+// events - the tap handler fires the event itself when the visual releases.
+int _win_button_set_visual_pressed(int btn, bool pressed)
+{
+    if (!gWindowSystemInitialized) {
+        return -1;
+    }
+
+    Window* window;
+    Button* button = buttonGetButton(btn, &window);
+    if (button == nullptr) {
+        return -1;
+    }
+
+    _button_draw(button, window, pressed ? button->pressedImage : button->normalImage, true, nullptr, true);
+
+    return 0;
+}
+
 int _win_button_press_and_release(int btn)
 {
     if (!gWindowSystemInitialized) {

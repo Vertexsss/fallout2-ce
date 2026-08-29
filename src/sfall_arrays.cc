@@ -179,6 +179,7 @@ public:
 
     ArrayElementType getType() const { return type; }
     int getRawValue() const { return value.integerValue; }
+    void* getPointer() const { return value.pointerValue; }
     const char* getString() const { return value.stringValue; }
 
     const char* getAsDebugString() const
@@ -294,7 +295,10 @@ struct ArrayElementHash {
             return h ^ std::hash<int>()(bits);
         }
         case ArrayElementType::POINTER:
-            return h ^ std::hash<void*>()(reinterpret_cast<void*>(el.getRawValue()));
+            // Hash the full pointer - going through the 32-bit raw value
+            // truncated it on 64-bit targets (extra collisions only:
+            // equality always compared full pointers).
+            return h ^ std::hash<void*>()(el.getPointer());
         case ArrayElementType::STRING:
             return h ^ std::hash<std::string_view>()(std::string_view(el.getString()));
         default:

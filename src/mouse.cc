@@ -429,6 +429,17 @@ static bool handleHudTapThrough(const Gesture& gesture)
 // convert finger distance into 32x24px map steps; a released pan above the
 // speed threshold keeps scrolling with exponential decay until it slows
 // down or any new touch cancels it.
+// True previous gesture position for delta-based pan/wheel handling. The
+// prevx/prevy statics inside _mouse_info are zeroed in absolute mode to feed
+// absolute coordinates to _mouse_simulate_input, which makes them unusable
+// as a delta base there.
+static int gGesturePrevX = 0;
+static int gGesturePrevY = 0;
+
+// Posted for taps that arrive while the cursor is hidden (movies, loads):
+// "press any key" consumers see it, everything else ignores the code.
+constexpr int kHiddenCursorTapKeyCode = 2003;
+
 static double gFlingCarryX = 0.0;
 static double gFlingCarryY = 0.0;
 static double gFlingVX = 0.0;
@@ -444,11 +455,24 @@ void _mouse_info()
         return;
     }
 
-    if (gCursorIsHidden) {
-        return;
-    }
+    if (gCursorIsHidden || _mouse_disabled) {
+        // The gesture queue keeps filling from the event pump while the
+        // cursor is hidden (movies, map loads, transitions). Discard the
+        // backlog instead of replaying it as phantom clicks and pans once
+        // the cursor comes back. A completed tap still pings the input
+        // queue so cutscenes can be skipped by tapping, and the pan
+        // trackers stay anchored so a pan spanning the gap does not jump.
+        Gesture pending;
+        while (touch_get_gesture(&pending)) {
+            if (pending.type == kTap && pending.state == kEnded) {
+                enqueueInputEvent(kHiddenCursorTapKeyCode);
+            }
+            gGesturePrevX = pending.x;
+            gGesturePrevY = pending.y;
+        }
 
-    if (_mouse_disabled) {
+        // Inertia must not carry over across a load or cutscene either.
+        gFlingActive = false;
         return;
     }
 
@@ -567,6 +591,8 @@ void _mouse_info()
             if (gesture.state == kBegan) {
                 prevx = gesture.x;
                 prevy = gesture.y;
+                gGesturePrevX = gesture.x;
+                gGesturePrevY = gesture.y;
             }
             if (!mouseDeviceUsesRelativeMode()) {
                 prevx = 0;
@@ -586,8 +612,14 @@ void _mouse_info()
                     // Windowed screens (inventory, dialogs) interpret the
                     // wheel as list scrolling - keep that behavior there.
                     if (touch_get_touchscreen_mode()) {
-                        gMouseWheelX = (prevx - gesture.x) / 2;
-                        gMouseWheelY = (gesture.y - prevy) / 2;
+                        // prevx froze at the pan start here (the early break
+                        // skips the tail update), which made the wheel delta
+                        // grow with total finger travel - lists accelerated
+                        // instead of tracking the finger.
+                        gMouseWheelX = (gGesturePrevX - gesture.x) / 2;
+                        gMouseWheelY = (gesture.y - gGesturePrevY) / 2;
+                        gGesturePrevX = gesture.x;
+                        gGesturePrevY = gesture.y;
                         if (gMouseWheelX != 0 || gMouseWheelY != 0) {
                             gMouseEvent |= MOUSE_EVENT_WHEEL;
                             _raw_buttons |= MOUSE_EVENT_WHEEL;
@@ -606,8 +638,8 @@ void _mouse_info()
                         gPanLastTicks = nowTicks;
                     }
 
-                    int dxPix = prevx - gesture.x;
-                    int dyPix = prevy - gesture.y;
+                    int dxPix = gGesturePrevX - gesture.x;
+                    int dyPix = gGesturePrevY - gesture.y;
 
                     unsigned int panDt = nowTicks - gPanLastTicks;
                     if (panDt > 0) {
@@ -636,12 +668,21 @@ void _mouse_info()
 
             prevx = gesture.x;
             prevy = gesture.y;
+            gGesturePrevX = gesture.x;
+            gGesturePrevY = gesture.y;
             break;
         case kUnrecognized:
             break;
         }
 
         return;
+    }
+
+    // A modal touchscreen context (dialog, inventory) can open without a
+    // touch, e.g. an NPC starting a conversation - inertia must not keep
+    // dragging the world behind it.
+    if (gFlingActive && touch_get_touchscreen_mode()) {
+        gFlingActive = false;
     }
 
     // Scroll inertia: keep panning after the fingers lift, decaying

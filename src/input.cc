@@ -1083,6 +1083,14 @@ void _GNW95_process_message()
                 break;
             }
             break;
+        case SDL_RENDER_TARGETS_RESET:
+        case SDL_RENDER_DEVICE_RESET:
+            // The GPU texture contents were lost (iOS backgrounding does this
+            // to Metal textures). With dirty-rect uploads anything not
+            // re-marked would stay stale forever - ghost cursor images after
+            // idle/lock. Re-upload the whole frame.
+            renderMarkDirtyAmbient(nullptr);
+            break;
         case SDL_QUIT:
             exit(EXIT_SUCCESS);
             break;

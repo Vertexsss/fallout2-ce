@@ -1,5 +1,7 @@
 # FOR:CE Community Engine
 
+> **Modified version.** This fork of [fallout2-ce/fallout2-ce](https://github.com/fallout2-ce/fallout2-ce) adds iPad battery optimizations (dirty-rect rendering with skipped identical frames, idle FPS throttling, Metal on iOS) and trims CI to the iOS build.
+
 FOR:CE is a fully working re-implementation of the classic Fallout engine, optimized for a hassle-free experience on multiple platforms, including Windows, Mac, iOS, Android, and Linux.  It provides high resolution support, quality-of-life improvements, and dozens upon dozens of bug fixes.
 
 This is a fork of the original Fallout2: CE project, which is no longer getting regular updates.

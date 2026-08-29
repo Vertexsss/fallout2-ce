@@ -106,6 +106,52 @@ void cycleNext()
     cycleSetSpeedFactor(next);
 }
 
+// Renders the game at 2/3 of the native resolution and lets SDL stretch it
+// to the full screen - everything becomes 1.5x bigger. On a 2x retina panel
+// this lands exactly on 3 physical pixels per game pixel, so it stays crisp.
+bool uiScaleReduced()
+{
+    return settings.screen.native_resolution_x != 0
+        && settings.screen.resolution_x != settings.screen.native_resolution_x;
+}
+
+bool uiScaleAvailable()
+{
+    int nx = settings.screen.native_resolution_x != 0 ? settings.screen.native_resolution_x : settings.screen.resolution_x;
+    int ny = settings.screen.native_resolution_y != 0 ? settings.screen.native_resolution_y : settings.screen.resolution_y;
+    return nx * 2 / 3 >= 640 && ny * 2 / 3 >= 480;
+}
+
+const char* uiScaleText()
+{
+    if (!uiScaleAvailable()) {
+        return "N/A";
+    }
+    return uiScaleReduced() ? "1.5X *" : "1X *";
+}
+
+void uiScaleNext()
+{
+    if (!uiScaleAvailable()) {
+        return;
+    }
+
+    if (settings.screen.native_resolution_x == 0) {
+        settings.screen.native_resolution_x = settings.screen.resolution_x;
+        settings.screen.native_resolution_y = settings.screen.resolution_y;
+    }
+
+    if (uiScaleReduced()) {
+        settings.screen.resolution_x = settings.screen.native_resolution_x;
+        settings.screen.resolution_y = settings.screen.native_resolution_y;
+        settings.ui.iface_bar_width = settings.screen.resolution_x >= 800 ? 800 : 640;
+    } else {
+        settings.screen.resolution_x = settings.screen.native_resolution_x * 2 / 3;
+        settings.screen.resolution_y = settings.screen.native_resolution_y * 2 / 3;
+        settings.ui.iface_bar_width = settings.screen.resolution_x >= 800 ? 800 : 640;
+    }
+}
+
 const char* toolbarText()
 {
     return settings.ui.quick_toolbar_visible ? "ON" : "OFF";
@@ -137,6 +183,7 @@ constexpr Row kRows[] = {
     { "COLOR CYCLE SPEED", cycleText, cycleNext },
     { "FPS COUNTER", fpsCounterText, fpsCounterNext },
     { "TOUCH TOOLBAR", toolbarText, toolbarNext },
+    { "UI SCALE", uiScaleText, uiScaleNext },
 };
 constexpr int kRowCount = static_cast<int>(sizeof(kRows) / sizeof(kRows[0]));
 constexpr int kWindowHeight = kTitleHeight + kRowCount * kRowHeight + kFooterHeight;

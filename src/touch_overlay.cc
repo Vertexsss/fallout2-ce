@@ -8,7 +8,10 @@
 #include "input.h"
 #include "interface.h"
 #include "kb.h"
+#include "map.h"
+#include "object.h"
 #include "svga.h"
+#include "tile.h"
 #include "text_font.h"
 #include "window_manager.h"
 
@@ -95,6 +98,44 @@ bool pointInButton(const OverlayButton& button, int x, int y)
     return button.window != -1
         && x >= button.x && x < button.x + kButtonWidth
         && y >= button.y && y < button.y + kButtonHeight;
+}
+
+// Outlines every item lying on the ground on the current elevation using
+// the engine's native OUTLINE_TYPE_ITEM (the same machinery combat uses for
+// targets). The simulated Shift alone only works when a mod like FO2Tweaks
+// provides highlighting - a vanilla install has nothing listening to it.
+void applyItemOutlines(bool enable)
+{
+    Object** objects = nullptr;
+    int count = objectListCreate(-1, gElevation, OBJ_TYPE_ITEM, &objects);
+
+    for (int i = 0; i < count; i++) {
+        Object* object = objects[i];
+        if (object->tile == -1) {
+            // In somebody's inventory, not on the map.
+            continue;
+        }
+        if ((object->flags & OBJECT_HIDDEN) != 0 || (object->flags & OBJECT_NO_HIGHLIGHT) != 0) {
+            continue;
+        }
+
+        Rect rect;
+        if (enable) {
+            if (!objectHasOutline(object)) {
+                objectSetOutline(object, OUTLINE_TYPE_ITEM, &rect);
+            }
+        } else {
+            if ((object->outline & OUTLINE_TYPE_MAX) == OUTLINE_TYPE_ITEM) {
+                objectClearOutline(object, &rect);
+            }
+        }
+    }
+
+    if (objects != nullptr) {
+        objectListFree(objects);
+    }
+
+    tileWindowRefresh();
 }
 
 void pushShiftEvent(bool down)
@@ -210,6 +251,7 @@ void touchOverlayToggleHighlight()
 {
     gHighlightActive = !gHighlightActive;
     pushShiftEvent(gHighlightActive);
+    applyItemOutlines(gHighlightActive);
     paintButton(gHltButton, gHighlightActive);
 }
 

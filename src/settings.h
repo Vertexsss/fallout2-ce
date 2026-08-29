@@ -42,6 +42,11 @@ struct ScreenSettings {
     // interacting for idle_grace_ms (power saving; mostly for handhelds).
     int idle_fps = 15;
     int idle_grace_ms = 400;
+
+    // Captured by the UI SCALE toggle the first time it is used, so the
+    // native resolution can be restored after rendering at a reduced one.
+    int native_resolution_x = 0;
+    int native_resolution_y = 0;
 };
 
 struct UISettings {

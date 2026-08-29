@@ -620,6 +620,64 @@ Map mapGetCurrentMap()
 }
 
 // 0x4826C0
+static int mapFloorDiv(int value, int step)
+{
+    int q = value / step;
+    if (value % step != 0 && ((value < 0) != (step < 0))) {
+        q--;
+    }
+    return q;
+}
+
+int mapScrollPixels(int dxPixels, int dyPixels)
+{
+    static int biasX = 0;
+    static int biasY = 0;
+
+    biasX += dxPixels;
+    biasY += dyPixels;
+
+    int stepsX = mapFloorDiv(biasX, 32);
+    int stepsY = mapFloorDiv(biasY, 24);
+    int residualX = biasX - stepsX * 32;
+    int residualY = biasY - stepsY * 24;
+
+    if (stepsX != 0 || stepsY != 0) {
+        gameMouseObjectsHide();
+
+        int centerScreenX;
+        int centerScreenY;
+        tileToScreenXY(gCenterTile, &centerScreenX, &centerScreenY);
+        centerScreenX += stepsX * 32 + 16;
+        centerScreenY += stepsY * 24 + 8;
+
+        int newCenterTile = tileFromScreenXY(centerScreenX, centerScreenY);
+        bool blocked = newCenterTile == -1;
+
+        if (!blocked) {
+            tileSetViewPixelBias(residualX, residualY);
+            if (tileSetCenter(newCenterTile, 0) == -1) {
+                blocked = true;
+            }
+        }
+
+        if (blocked) {
+            // Stay at the boundary; drop the crossing but keep the residual.
+            biasX = residualX;
+            biasY = residualY;
+            return -1;
+        }
+    } else {
+        tileSetViewPixelBias(residualX, residualY);
+    }
+
+    biasX = residualX;
+    biasY = residualY;
+
+    tileWindowRefresh();
+    return 0;
+}
+
 int mapScroll(int dx, int dy, bool fastPaced)
 {
     // Touch panning and its inertia run at frame rate; the classic 33ms

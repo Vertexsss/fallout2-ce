@@ -38,6 +38,11 @@ void tileDisable();
 void tileEnable();
 void tileWindowRefreshRect(Rect* rect, int elevation);
 void tileWindowRefresh();
+
+// Sub-tile pixel bias of the viewport for smooth (pixel-granular) scrolling.
+// Applied on top of the tile-aligned center; reset by forced re-centering
+// (map load, teleport). Positive values shift the view right/down.
+void tileSetViewPixelBias(int biasX, int biasY);
 int tileSetCenter(int tile, int flags);
 void tile_toggle_roof(bool refresh);
 int tileRoofIsVisible();

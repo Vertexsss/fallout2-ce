@@ -102,6 +102,10 @@ char* mapGetCityName(Map map_num);
 char* mapDescriptionById(Map map_index);
 Map mapGetCurrentMap();
 int mapScroll(int dx, int dy, bool fastPaced = false);
+// Smooth scroll by raw pixels (touch pan / inertia): whole 32x24 steps move
+// the center tile, the remainder becomes the viewport pixel bias. Returns -1
+// when blocked by map edges or scroll restrictions.
+int mapScrollPixels(int dxPixels, int dyPixels);
 int mapSetEnteringLocation(int elevation, int tile, Rotation rotation);
 void mapNewMap();
 int mapLoadByName(char* fileName);

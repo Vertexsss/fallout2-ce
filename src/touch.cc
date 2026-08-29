@@ -17,7 +17,7 @@ namespace fallout {
 #define TAP_MAXIMUM_DURATION 75
 // A tap by an extra finger while a one-finger gesture is held (secondary
 // tap = right click / cursor mode switch).
-#define SECONDARY_TAP_MAXIMUM_DURATION 200
+#define SECONDARY_TAP_MAXIMUM_DURATION 250
 #define PAN_MINIMUM_MOVEMENT 4
 #define LONG_PRESS_MINIMUM_DURATION 500
 
@@ -41,6 +41,9 @@ static Gesture currentGesture;
 static std::stack<Gesture> gestureEventsQueue;
 
 static bool gUseTouchscreenMode = false;
+// A secondary tap fired in this sequence - swallow the primary finger's own
+// tap when it finally lifts, so a sloppy two-finger tap does not also click.
+static bool gSuppressPrimaryTap = false;
 static bool gUsePanMode = false;
 
 static int find_touch(SDL_FingerID fingerId)
@@ -207,6 +210,8 @@ void touch_process_gesture()
         }
     }
 
+    const bool sequenceOver = sequenceEndTimestamp != static_cast<Uint32>(-1);
+
     if (currentGesture.type == kPan || currentGesture.type == kLongPress) {
         if (currentGesture.state != kEnded) {
             // For continuous gestures we want number of fingers to remain the
@@ -265,6 +270,7 @@ void touch_process_gesture()
                     tap.x = touches[active[0]].currentLocation.x;
                     tap.y = touches[active[0]].currentLocation.y;
                     gestureEventsQueue.push(tap);
+                    gSuppressPrimaryTap = true;
                 }
 
                 currentGesture.state = kChanged;
@@ -282,7 +288,28 @@ void touch_process_gesture()
             currentGesture.type = kUnrecognized;
         }
     } else {
-        if (activeCount == 0 && endedCount != 0) {
+        if (activeCount == 1 && endedCount == 1
+            && touches[ended[0]].startTimestamp > touches[active[0]].startTimestamp) {
+            // A second finger tapped while the first is held but no gesture
+            // is recognized yet - same secondary tap as during pan.
+            int secondary = ended[0];
+            bool quickTap = touches[secondary].currentTimestamp - touches[secondary].startTimestamp <= SECONDARY_TAP_MAXIMUM_DURATION
+                && abs(touches[secondary].currentLocation.x - touches[secondary].startLocation.x) <= 2 * PAN_MINIMUM_MOVEMENT
+                && abs(touches[secondary].currentLocation.y - touches[secondary].startLocation.y) <= 2 * PAN_MINIMUM_MOVEMENT;
+
+            touches[secondary].used = false;
+
+            if (quickTap) {
+                Gesture tap;
+                tap.type = kTap;
+                tap.state = kEnded;
+                tap.numberOfTouches = 2;
+                tap.x = touches[active[0]].currentLocation.x;
+                tap.y = touches[active[0]].currentLocation.y;
+                gestureEventsQueue.push(tap);
+                gSuppressPrimaryTap = true;
+            }
+        } else if (activeCount == 0 && endedCount != 0) {
             // For taps we need all participating fingers to be both started
             // and ended simultaneously (within predefined threshold).
             Uint32 startEarliestTimestamp = -1;
@@ -297,7 +324,10 @@ void touch_process_gesture()
                 endLatestTimestamp = std::max(endLatestTimestamp, touches[ended[index]].currentTimestamp);
             }
 
-            if (startLatestTimestamp - startEarliestTimestamp <= TAP_MAXIMUM_DURATION
+            if (endedCount == 1 && gSuppressPrimaryTap) {
+                // The mode switch already fired off this finger's companion.
+                gSuppressPrimaryTap = false;
+            } else if (startLatestTimestamp - startEarliestTimestamp <= TAP_MAXIMUM_DURATION
                 && endLatestTimestamp - endEarliestTimestamp <= TAP_MAXIMUM_DURATION) {
                 TouchLocation currentCentroid = touch_get_current_location_centroid(ended, endedCount);
 
@@ -339,6 +369,10 @@ void touch_process_gesture()
                 mouseShowCursor();
             }
         }
+    }
+
+    if (sequenceOver) {
+        gSuppressPrimaryTap = false;
     }
 }
 

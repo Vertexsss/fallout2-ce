@@ -11,6 +11,7 @@
 #include "input.h"
 #include "interface.h"
 #include "kb.h"
+#include "map.h"
 #include "memory.h"
 #include "platform/ios/quick_toolbar.h"
 #include "svga.h"
@@ -428,8 +429,8 @@ static bool handleHudTapThrough(const Gesture& gesture)
 // convert finger distance into 32x24px map steps; a released pan above the
 // speed threshold keeps scrolling with exponential decay until it slows
 // down or any new touch cancels it.
-static int gPanAccumX = 0;
-static int gPanAccumY = 0;
+static double gFlingCarryX = 0.0;
+static double gFlingCarryY = 0.0;
 static double gFlingVX = 0.0;
 static double gFlingVY = 0.0;
 static bool gFlingActive = false;
@@ -582,24 +583,19 @@ void _mouse_info()
                 if (!touch_get_pan_mode() && gesture.numberOfTouches == 1) {
                     _mouse_simulate_input(gesture.x - prevx, gesture.y - prevy, 0);
                 } else if (touch_get_pan_mode() || gesture.numberOfTouches == 2) {
-                    // The wheel handler scrolls the map one step (32x24 px)
-                    // per tick; accumulate finger distance and emit one tick
-                    // per map step for a 1:1 feel, tracking velocity for the
-                    // release fling.
+                    // Pixel-granular pan: the map follows the fingers 1:1 and
+                    // smoothly (sub-tile viewport bias), tracking velocity
+                    // for the release fling.
                     unsigned int nowTicks = SDL_GetTicks();
 
                     if (gesture.state == kBegan) {
-                        gPanAccumX = 0;
-                        gPanAccumY = 0;
                         gFlingVX = 0.0;
                         gFlingVY = 0.0;
                         gPanLastTicks = nowTicks;
                     }
 
                     int dxPix = prevx - gesture.x;
-                    int dyPix = gesture.y - prevy;
-                    gPanAccumX += dxPix;
-                    gPanAccumY += dyPix;
+                    int dyPix = prevy - gesture.y;
 
                     unsigned int panDt = nowTicks - gPanLastTicks;
                     if (panDt > 0) {
@@ -608,20 +604,20 @@ void _mouse_info()
                         gPanLastTicks = nowTicks;
                     }
 
-                    if (gesture.state == kEnded
-                        && gFlingVX * gFlingVX + gFlingVY * gFlingVY > 150.0 * 150.0) {
-                        gFlingActive = true;
-                        gFlingLastTicks = nowTicks;
+                    if (dxPix != 0 || dyPix != 0) {
+                        mapScrollPixels(dxPix, dyPix);
                     }
 
-                    gMouseWheelX = gPanAccumX / 32;
-                    gMouseWheelY = gPanAccumY / 24;
-                    gPanAccumX -= gMouseWheelX * 32;
-                    gPanAccumY -= gMouseWheelY * 24;
-
-                    if (gMouseWheelX != 0 || gMouseWheelY != 0) {
-                        gMouseEvent |= MOUSE_EVENT_WHEEL;
-                        _raw_buttons |= MOUSE_EVENT_WHEEL;
+                    if (gesture.state == kEnded
+                        && gFlingVX * gFlingVX + gFlingVY * gFlingVY > 200.0 * 200.0) {
+                        // Cap the launch speed - flick spikes overshoot.
+                        double speed = sqrt(gFlingVX * gFlingVX + gFlingVY * gFlingVY);
+                        if (speed > 1400.0) {
+                            gFlingVX *= 1400.0 / speed;
+                            gFlingVY *= 1400.0 / speed;
+                        }
+                        gFlingActive = true;
+                        gFlingLastTicks = nowTicks;
                     }
                 }
             }
@@ -637,32 +633,30 @@ void _mouse_info()
     }
 
     // Scroll inertia: keep panning after the fingers lift, decaying
-    // exponentially, until it slows down or a new touch cancels it.
+    // exponentially, until it slows down, hits a boundary or a new touch
+    // cancels it.
     if (gFlingActive) {
         unsigned int nowTicks = SDL_GetTicks();
         unsigned int flingDt = nowTicks - gFlingLastTicks;
         if (flingDt > 0) {
             gFlingLastTicks = nowTicks;
 
-            gPanAccumX += static_cast<int>(gFlingVX * flingDt / 1000.0);
-            gPanAccumY += static_cast<int>(gFlingVY * flingDt / 1000.0);
+            gFlingCarryX += gFlingVX * flingDt / 1000.0;
+            gFlingCarryY += gFlingVY * flingDt / 1000.0;
+            int px = static_cast<int>(gFlingCarryX);
+            int py = static_cast<int>(gFlingCarryY);
+            gFlingCarryX -= px;
+            gFlingCarryY -= py;
 
-            double decay = exp(-static_cast<double>(flingDt) / 300.0);
-            gFlingVX *= decay;
-            gFlingVY *= decay;
-            if (gFlingVX * gFlingVX + gFlingVY * gFlingVY < 40.0 * 40.0) {
+            if ((px != 0 || py != 0) && mapScrollPixels(px, py) == -1) {
                 gFlingActive = false;
             }
 
-            int ticksX = gPanAccumX / 32;
-            int ticksY = gPanAccumY / 24;
-            if (ticksX != 0 || ticksY != 0) {
-                gPanAccumX -= ticksX * 32;
-                gPanAccumY -= ticksY * 24;
-                gMouseWheelX = ticksX;
-                gMouseWheelY = ticksY;
-                gMouseEvent |= MOUSE_EVENT_WHEEL;
-                _raw_buttons |= MOUSE_EVENT_WHEEL;
+            double decay = exp(-static_cast<double>(flingDt) / 220.0);
+            gFlingVX *= decay;
+            gFlingVY *= decay;
+            if (gFlingVX * gFlingVX + gFlingVY * gFlingVY < 60.0 * 60.0) {
+                gFlingActive = false;
             }
 
             // The fling is user-initiated motion - keep the loop at full

@@ -232,6 +232,10 @@ static TileWindowRefreshProc* gTileWindowRefreshProc;
 // 0x66BDF8 tile_offy
 static int _tile_offy;
 
+// Sub-tile viewport bias for smooth scrolling (see tileSetViewPixelBias).
+static int gTileViewPixelBiasX = 0;
+static int gTileViewPixelBiasY = 0;
+
 // 0x66BDFC tile_offx
 static int _tile_offx;
 
@@ -544,6 +548,19 @@ void tileWindowRefreshRect(Rect* rect, int elevation)
 }
 
 // 0x4B12D8 tile_refresh_display
+void tileSetViewPixelBias(int biasX, int biasY)
+{
+    int dx = biasX - gTileViewPixelBiasX;
+    int dy = biasY - gTileViewPixelBiasY;
+    gTileViewPixelBiasX = biasX;
+    gTileViewPixelBiasY = biasY;
+
+    _tile_offx -= dx;
+    _tile_offy -= dy;
+    _square_offx -= dx;
+    _square_offy -= dy;
+}
+
 void tileWindowRefresh()
 {
     if (gTileEnabled) {
@@ -621,10 +638,16 @@ int tileSetCenter(int tile, int flags)
         }
     }
 
+    // Forced positioning (load, teleport) resets the smooth-scroll bias.
+    if (!isScroll) {
+        gTileViewPixelBiasX = 0;
+        gTileViewPixelBiasY = 0;
+    }
+
     _tile_y = tile_y;
-    _tile_offx = mapEdgeGetTileXAlignment() + (gTileWindowWidth - 32) / 2;
+    _tile_offx = mapEdgeGetTileXAlignment() + (gTileWindowWidth - 32) / 2 - gTileViewPixelBiasX;
     _tile_x = tile_x;
-    _tile_offy = mapEdgeGetTileYAlignment() + (gTileWindowHeight - 16) / 2;
+    _tile_offy = mapEdgeGetTileYAlignment() + (gTileWindowHeight - 16) / 2 - gTileViewPixelBiasY;
 
     if (tile_x & 1) {
         _tile_x -= 1;

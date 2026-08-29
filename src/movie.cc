@@ -59,6 +59,10 @@ struct MovieDirectOverlay {
     SDL_Rect dstRect = { 0, 0, 0, 0 };
     bool active = false;
     std::vector<uint32_t> uploadBuffer;
+
+    // Last decoded indexed frame - kept so palette-only changes (fades over
+    // a static frame) can re-color the overlay between video frames.
+    std::vector<unsigned char> lastFrame;
 };
 
 static MovieDirectOverlay movieDirectOverlay;
@@ -75,6 +79,7 @@ static void movieDirectOverlayDestroy()
     movieDirectOverlay.dstRect = { 0, 0, 0, 0 };
     movieDirectOverlay.active = false;
     movieDirectOverlay.uploadBuffer.clear();
+    movieDirectOverlay.lastFrame.clear();
 }
 
 static bool movieDirectOverlayEnsureTexture(int width, int height)
@@ -117,6 +122,12 @@ static void movieDirectOverlayUpload(unsigned char* pixels, int srcWidth, int sr
     int pixelCount = width * height;
     if (static_cast<int>(movieDirectOverlay.uploadBuffer.size()) < pixelCount) {
         movieDirectOverlay.uploadBuffer.resize(pixelCount);
+    }
+
+    // Remember the indexed frame for palette-driven re-conversion (skip the
+    // self-copy when this call IS such a re-conversion).
+    if (pixels != movieDirectOverlay.lastFrame.data()) {
+        movieDirectOverlay.lastFrame.assign(pixels, pixels + pixelCount);
     }
 
     SDL_Color* colors = gSdlSurface->format->palette->colors;
@@ -428,6 +439,16 @@ static void movieSetPaletteEntriesImpl(unsigned char* palette, int start, int en
 {
     if (end != 0) {
         gMovieSetPaletteEntriesProc(palette + start * 3, start, end + start - 1);
+
+        // The overlay is converted to RGB at frame-decode time and knows
+        // nothing about later palette changes. Fades encoded as palette
+        // ramps over a static frame (typical for title cards) only worked
+        // when the encoder happened to resend the frame - re-color the
+        // overlay explicitly instead.
+        if (movieDirectOverlay.active && !movieDirectOverlay.lastFrame.empty()) {
+            movieDirectOverlayUpload(movieDirectOverlay.lastFrame.data(),
+                movieDirectOverlay.srcWidth, movieDirectOverlay.srcHeight);
+        }
     }
 }
 

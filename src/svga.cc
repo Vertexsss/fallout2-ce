@@ -6,6 +6,10 @@
 
 #include <SDL.h>
 
+#if __APPLE__
+#include <TargetConditionals.h>
+#endif
+
 #include "color.h"
 #include "config.h"
 #include "dinput.h"
@@ -44,6 +48,10 @@ SDL_Surface* gSdlTextureSurface = nullptr;
 
 // TODO: Remove once migration to update-render cycle is completed.
 FpsLimiter sharedFpsLimiter;
+
+// Union of everything written into `gSdlTextureSurface` since the last present.
+static bool gRenderDirty = false;
+static SDL_Rect gRenderDirtyRect;
 
 // 0x4CAD08 init_mode_320_200
 int _init_mode_320_200()
@@ -161,9 +169,17 @@ int _init_vesa_mode(int width, int height)
 int _GNW95_init_window(int width, int height, WindowMode mode, int scale)
 {
     if (gSdlWindow == nullptr) {
+#if __APPLE__ && TARGET_OS_IOS
+        // OpenGL ES is deprecated on iOS and runs through a translation layer,
+        // which costs both CPU and GPU power. Metal is the native path.
+        SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
+
+        Uint32 windowFlags = SDL_WINDOW_METAL | SDL_WINDOW_ALLOW_HIGHDPI;
+#else
         SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
 
         Uint32 windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI;
+#endif
 
         if (mode == WindowMode::Fullscreen) {
             windowFlags |= SDL_WINDOW_FULLSCREEN;
@@ -246,6 +262,7 @@ void directDrawSetPaletteInRange(unsigned char* palette, int start, int count)
 
         SDL_SetPaletteColors(gSdlSurface->format->palette, colors, start, count);
         SDL_BlitSurface(gSdlSurface, nullptr, gSdlTextureSurface, nullptr);
+        renderMarkDirty(nullptr);
     }
 }
 
@@ -264,6 +281,7 @@ void directDrawSetPalette(unsigned char* palette)
 
         SDL_SetPaletteColors(gSdlSurface->format->palette, colors, 0, 256);
         SDL_BlitSurface(gSdlSurface, nullptr, gSdlTextureSurface, nullptr);
+        renderMarkDirty(nullptr);
     }
 }
 
@@ -304,6 +322,8 @@ void _GNW95_ShowRect(unsigned char* src, int srcPitch, int unused, int srcX, int
     destRect.x = destX;
     destRect.y = destY;
     SDL_BlitSurface(gSdlSurface, &srcRect, gSdlTextureSurface, &destRect);
+
+    renderMarkDirty(&srcRect);
 }
 
 // Clears drawing surface.
@@ -322,6 +342,7 @@ void _GNW95_zero_vid_mem()
     }
 
     SDL_BlitSurface(gSdlSurface, nullptr, gSdlTextureSurface, nullptr);
+    renderMarkDirty(nullptr);
 }
 
 int screenGetWidth()
@@ -384,6 +405,10 @@ static bool createRenderer(int width, int height)
 
 static void destroyRenderer()
 {
+    // The recorded dirty region is only meaningful for the surface it was
+    // recorded against - forget it before that surface goes away.
+    gRenderDirty = false;
+
     if (gSdlTextureSurface != nullptr) {
         SDL_FreeSurface(gSdlTextureSurface);
         gSdlTextureSurface = nullptr;
@@ -405,6 +430,11 @@ void handleWindowSizeChanged()
     movieHandleRendererReset();
     destroyRenderer();
     createRenderer(screenGetWidth(), screenGetHeight());
+
+    // The new surface starts out blank - make sure the next present uploads
+    // it in full instead of reusing a stale region from the old surface.
+    renderMarkDirty(nullptr);
+
     mouseDeviceRefreshWindowMapping();
 }
 
@@ -462,16 +492,62 @@ void renderFpsCounter()
     rect.w = width;
     rect.h = height;
     SDL_BlitSurface(gSdlSurface, &rect, gSdlTextureSurface, &rect);
+    renderMarkDirty(&rect);
+}
+
+void renderMarkDirty(const SDL_Rect* rect)
+{
+    sharedFpsLimiter.notifyActivity();
+
+    if (gSdlTextureSurface == nullptr) {
+        return;
+    }
+
+    SDL_Rect full;
+    full.x = 0;
+    full.y = 0;
+    full.w = gSdlTextureSurface->w;
+    full.h = gSdlTextureSurface->h;
+
+    SDL_Rect clipped;
+    if (rect == nullptr) {
+        clipped = full;
+    } else if (SDL_IntersectRect(rect, &full, &clipped) == SDL_FALSE) {
+        return;
+    }
+
+    if (gRenderDirty) {
+        SDL_UnionRect(&gRenderDirtyRect, &clipped, &gRenderDirtyRect);
+    } else {
+        gRenderDirtyRect = clipped;
+        gRenderDirty = true;
+    }
 }
 
 void renderPresent()
 {
-    SDL_UpdateTexture(gSdlTexture, nullptr, gSdlTextureSurface->pixels, gSdlTextureSurface->pitch);
+    if (gSdlRenderer == nullptr || gSdlTexture == nullptr || gSdlTextureSurface == nullptr) {
+        return;
+    }
+
+    // Nothing changed since the last present - do not burn a texture upload,
+    // a draw call and a swap on an identical frame.
+    if (!gRenderDirty) {
+        return;
+    }
+
+    const unsigned char* pixels = static_cast<const unsigned char*>(gSdlTextureSurface->pixels)
+        + static_cast<size_t>(gRenderDirtyRect.y) * gSdlTextureSurface->pitch
+        + static_cast<size_t>(gRenderDirtyRect.x) * gSdlTextureSurface->format->BytesPerPixel;
+
+    SDL_UpdateTexture(gSdlTexture, &gRenderDirtyRect, pixels, gSdlTextureSurface->pitch);
     SDL_RenderClear(gSdlRenderer);
     SDL_RenderCopy(gSdlRenderer, gSdlTexture, nullptr, nullptr);
     // render movie SDL texture if present
     movieRenderDirectOverlay();
     SDL_RenderPresent(gSdlRenderer);
+
+    gRenderDirty = false;
 }
 
 } // namespace fallout

@@ -998,6 +998,9 @@ void _GNW95_process_message()
     KeyboardData keyboardData;
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
+        // Any incoming event means the user is interacting - leave idle mode.
+        sharedFpsLimiter.notifyActivity();
+
         switch (e.type) {
         case SDL_MOUSEMOTION:
         case SDL_MOUSEBUTTONDOWN:

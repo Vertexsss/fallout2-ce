@@ -134,6 +134,10 @@ static void movieDirectOverlayUpload(unsigned char* pixels, int srcWidth, int sr
 
     SDL_Rect rect = { 0, 0, width, height };
     SDL_UpdateTexture(movieDirectOverlay.texture, &rect, movieDirectOverlay.uploadBuffer.data(), width * static_cast<int>(sizeof(uint32_t)));
+
+    // The overlay lives in its own texture, so the screen surface may look
+    // unchanged - tell the renderer a new frame is pending anyway.
+    renderMarkDirty(nullptr);
 }
 
 // 0x5195BC subtitleFont

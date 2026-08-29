@@ -6,12 +6,23 @@ namespace fallout {
 class FpsLimiter {
 public:
     FpsLimiter(unsigned int fps = 60);
+
     void mark();
-    void throttle() const;
+    void throttle();
+
+    // Called whenever something is drawn or the user interacts, so the limiter
+    // knows the game is not idling.
+    void notifyActivity();
+
+    void setIdleFps(unsigned int fps) { _idleFps = fps; }
+    void setIdleGrace(unsigned int ms) { _idleGraceMs = ms; }
 
 private:
     const unsigned int _fps;
+    unsigned int _idleFps;
+    unsigned int _idleGraceMs;
     unsigned int _ticks;
+    unsigned int _lastActivityTicks;
 };
 
 } // namespace fallout

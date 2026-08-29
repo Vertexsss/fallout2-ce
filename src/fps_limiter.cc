@@ -14,6 +14,9 @@ FpsLimiter::FpsLimiter(unsigned int fps)
     , _lastActivityTicks(0)
     , _lastPresentTicks(0)
     , _lastTargetFps(fps != 0 ? fps : 60)
+    , _busyAccumMs(0)
+    , _busyWindowStart(0)
+    , _lastBusyMsPerSec(0)
 {
 }
 
@@ -35,6 +38,14 @@ void FpsLimiter::notifyPresent()
 void FpsLimiter::throttle()
 {
     unsigned int now = SDL_GetTicks();
+
+    // Time since mark() is the work portion of this iteration.
+    _busyAccumMs += now - _ticks;
+    if (now - _busyWindowStart >= 1000) {
+        _lastBusyMsPerSec = _busyAccumMs;
+        _busyAccumMs = 0;
+        _busyWindowStart = now;
+    }
 
     // After a long stretch with neither input nor a single presented frame
     // (a genuinely static screen - ambient animation like water still counts
@@ -96,9 +107,11 @@ void FpsLimiter::throttle()
             break;
         }
 
-        // Unfocused windows and deep idle tolerate slower reaction - nap in
-        // bigger chunks to cut the number of CPU wakeups.
-        const unsigned int chunkMs = !gProgramIsActive ? 50 : (deepIdle ? 33 : 16);
+        // Unfocused windows, deep idle and long-untouched sessions tolerate
+        // slower reaction - nap in bigger chunks to cut CPU wakeups.
+        const unsigned int chunkMs = !gProgramIsActive
+            ? 50
+            : ((deepIdle || now - _lastActivityTicks > 5000) ? 33 : 16);
         const unsigned int remaining = budget - elapsed;
         SDL_Delay(remaining < chunkMs ? remaining : chunkMs);
     }

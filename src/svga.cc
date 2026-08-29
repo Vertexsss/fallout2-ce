@@ -451,7 +451,11 @@ void _GNW95_ShowRect(unsigned char* src, int srcPitch, int unused, int srcX, int
     destRect.x = destX;
     destRect.y = destY;
     // Conversion to RGB happens once per presented frame in renderPresent.
-    renderMarkDirty(&srcRect);
+    // Ambient: world animation (critters, fires, the bobbing hex cursor)
+    // must not keep the idle limiter at full rate - it still gets presented,
+    // just at the idle FPS, which comfortably covers the ~10fps artwork.
+    // Real user input marks activity in the event pump instead.
+    renderMarkDirtyAmbient(&srcRect);
 }
 
 // Clears drawing surface.
@@ -471,7 +475,7 @@ void _GNW95_zero_vid_mem()
 
     gPalettePresenceValid = false;
 
-    renderMarkDirty(nullptr);
+    renderMarkDirtyAmbient(nullptr);
 }
 
 int screenGetWidth()
@@ -607,9 +611,10 @@ void renderFpsCounter()
         sampleStartTicks = now;
     }
 
-    char text[96];
-    snprintf(text, sizeof(text), "FPS: %.1f  P: %.0f/s  U: %.1fMB/s  T: %u  R: %.0f/s  L: %dx%d",
-        fps, presentsPerSec, uploadMbPerSec, sharedFpsLimiter.lastTargetFps(), rectsPerSec, maxRectW, maxRectH);
+    char text[112];
+    snprintf(text, sizeof(text), "FPS: %.1f  P: %.0f/s  U: %.1fMB/s  T: %u  R: %.0f/s  L: %dx%d  B: %ums",
+        fps, presentsPerSec, uploadMbPerSec, sharedFpsLimiter.lastTargetFps(), rectsPerSec, maxRectW, maxRectH,
+        sharedFpsLimiter.busyMsPerSec());
 
     ScopedFont font(101);
 

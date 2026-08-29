@@ -21,6 +21,10 @@ public:
     // Frame rate the last throttle() call aimed for (for the stats overlay).
     unsigned int lastTargetFps() const { return _lastTargetFps; }
 
+    // Milliseconds per second the main thread spent working (not sleeping)
+    // over the last completed one-second window.
+    unsigned int busyMsPerSec() const { return _lastBusyMsPerSec; }
+
     void setIdleFps(unsigned int fps) { _idleFps = fps; }
     void setIdleGrace(unsigned int ms) { _idleGraceMs = ms; }
 
@@ -32,6 +36,9 @@ private:
     unsigned int _lastActivityTicks;
     unsigned int _lastPresentTicks;
     unsigned int _lastTargetFps;
+    unsigned int _busyAccumMs;
+    unsigned int _busyWindowStart;
+    unsigned int _lastBusyMsPerSec;
 };
 
 } // namespace fallout

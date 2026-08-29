@@ -564,9 +564,27 @@ void _mouse_info()
                 if (!touch_get_pan_mode() && gesture.numberOfTouches == 1) {
                     _mouse_simulate_input(gesture.x - prevx, gesture.y - prevy, 0);
                 } else if (touch_get_pan_mode() || gesture.numberOfTouches == 2) {
-                    int coefficient = touch_get_pan_mode() ? 8 : 2;
-                    gMouseWheelX = (prevx - gesture.x) / coefficient;
-                    gMouseWheelY = (gesture.y - prevy) / coefficient;
+                    // The wheel handler scrolls the map one step (32x24 px)
+                    // per event and ignores the magnitude, so emitting a
+                    // wheel tick on every touch update panned the map many
+                    // times faster than the fingers moved. Accumulate the
+                    // finger distance and emit one tick per map step for a
+                    // 1:1 feel.
+                    static int panAccumX = 0;
+                    static int panAccumY = 0;
+
+                    if (gesture.state == kBegan) {
+                        panAccumX = 0;
+                        panAccumY = 0;
+                    }
+
+                    panAccumX += prevx - gesture.x;
+                    panAccumY += gesture.y - prevy;
+
+                    gMouseWheelX = panAccumX / 32;
+                    gMouseWheelY = panAccumY / 24;
+                    panAccumX -= gMouseWheelX * 32;
+                    panAccumY -= gMouseWheelY * 24;
 
                     if (gMouseWheelX != 0 || gMouseWheelY != 0) {
                         gMouseEvent |= MOUSE_EVENT_WHEEL;

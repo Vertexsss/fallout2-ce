@@ -564,7 +564,7 @@ int gameHandleKey(int eventCode, bool isInCombatMode)
                 dy = 1;
             }
 
-            mapScroll(dx, dy);
+            mapScroll(dx, dy, true);
         }
         return 0;
     }

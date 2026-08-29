@@ -59,6 +59,10 @@ struct UISettings {
     // Show the Help option in the in-game options menu.
     bool in_game_menu_help = true;
 
+    // Allow scrolling the view across the whole map instead of stopping a
+    // screen away from the player. Map-edge and scroll-blocker checks stay.
+    bool free_scroll = true;
+
     // Should the game window stretch all the way to the bottom or sit at the top of the interface bar (default).
     bool iface_bar_mode = false;
 

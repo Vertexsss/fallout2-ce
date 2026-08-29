@@ -101,7 +101,7 @@ int _get_map_idx_same(Map map_num1, Map map_num2);
 char* mapGetCityName(Map map_num);
 char* mapDescriptionById(Map map_index);
 Map mapGetCurrentMap();
-int mapScroll(int dx, int dy);
+int mapScroll(int dx, int dy, bool fastPaced = false);
 int mapSetEnteringLocation(int elevation, int tile, Rotation rotation);
 void mapNewMap();
 int mapLoadByName(char* fileName);

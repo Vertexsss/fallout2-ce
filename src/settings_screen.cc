@@ -152,6 +152,17 @@ void uiScaleNext()
     }
 }
 
+const char* freeScrollText()
+{
+    return settings.ui.free_scroll ? "ON" : "OFF";
+}
+
+void freeScrollNext()
+{
+    // Read per scroll attempt - applies instantly, no restart needed.
+    settings.ui.free_scroll = !settings.ui.free_scroll;
+}
+
 const char* toolbarText()
 {
     return settings.ui.quick_toolbar_visible ? "ON" : "OFF";
@@ -183,6 +194,7 @@ constexpr Row kRows[] = {
     { "COLOR CYCLE SPEED", cycleText, cycleNext },
     { "FPS COUNTER", fpsCounterText, fpsCounterNext },
     { "TOUCH TOOLBAR", toolbarText, toolbarNext },
+    { "FREE CAMERA", freeScrollText, freeScrollNext },
     { "UI SCALE", uiScaleText, uiScaleNext },
 };
 constexpr int kRowCount = static_cast<int>(sizeof(kRows) / sizeof(kRows[0]));

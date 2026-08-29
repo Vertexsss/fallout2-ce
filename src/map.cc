@@ -620,9 +620,12 @@ Map mapGetCurrentMap()
 }
 
 // 0x4826C0
-int mapScroll(int dx, int dy)
+int mapScroll(int dx, int dy, bool fastPaced)
 {
-    if (getTicksSince(gIsoWindowScrollTimestamp) < 33) {
+    // Touch panning and its inertia run at frame rate; the classic 33ms
+    // pacing (tuned for edge/keyboard scrolling) would drop every other
+    // step and make the pan lose distance and stutter.
+    if (getTicksSince(gIsoWindowScrollTimestamp) < (fastPaced ? 15u : 33u)) {
         return -2;
     }
 

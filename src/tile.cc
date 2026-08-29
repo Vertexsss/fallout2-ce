@@ -569,7 +569,7 @@ int tileSetCenter(int tile, int flags)
 
     bool boundaryModsSet = false;
     if ((flags & TILE_SET_CENTER_FLAG_IGNORE_SCROLL_RESTRICTIONS) == 0) {
-        if (gTileScrollLimitingEnabled) {
+        if (gTileScrollLimitingEnabled && !settings.ui.free_scroll) {
             int tileScreenX;
             int tileScreenY;
             tileToScreenXY(tile, &tileScreenX, &tileScreenY);

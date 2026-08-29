@@ -1,5 +1,7 @@
 #include "mouse.h"
 
+#include <math.h>
+
 #if __APPLE__
 #include <TargetConditionals.h>
 #endif
@@ -422,6 +424,18 @@ static bool handleHudTapThrough(const Gesture& gesture)
 }
 #endif
 
+// Two-finger pan accumulators and fling (inertia) state. The accumulators
+// convert finger distance into 32x24px map steps; a released pan above the
+// speed threshold keeps scrolling with exponential decay until it slows
+// down or any new touch cancels it.
+static int gPanAccumX = 0;
+static int gPanAccumY = 0;
+static double gFlingVX = 0.0;
+static double gFlingVY = 0.0;
+static bool gFlingActive = false;
+static unsigned int gFlingLastTicks = 0;
+static unsigned int gPanLastTicks = 0;
+
 // 0x4CA59C
 void _mouse_info()
 {
@@ -439,6 +453,10 @@ void _mouse_info()
 
     Gesture gesture;
     if (touch_get_gesture(&gesture)) {
+        // Any new touch cancels scroll inertia.
+        if (gesture.state == kBegan) {
+            gFlingActive = false;
+        }
         static int prevx;
         static int prevy;
 
@@ -565,26 +583,41 @@ void _mouse_info()
                     _mouse_simulate_input(gesture.x - prevx, gesture.y - prevy, 0);
                 } else if (touch_get_pan_mode() || gesture.numberOfTouches == 2) {
                     // The wheel handler scrolls the map one step (32x24 px)
-                    // per event and ignores the magnitude, so emitting a
-                    // wheel tick on every touch update panned the map many
-                    // times faster than the fingers moved. Accumulate the
-                    // finger distance and emit one tick per map step for a
-                    // 1:1 feel.
-                    static int panAccumX = 0;
-                    static int panAccumY = 0;
+                    // per tick; accumulate finger distance and emit one tick
+                    // per map step for a 1:1 feel, tracking velocity for the
+                    // release fling.
+                    unsigned int nowTicks = SDL_GetTicks();
 
                     if (gesture.state == kBegan) {
-                        panAccumX = 0;
-                        panAccumY = 0;
+                        gPanAccumX = 0;
+                        gPanAccumY = 0;
+                        gFlingVX = 0.0;
+                        gFlingVY = 0.0;
+                        gPanLastTicks = nowTicks;
                     }
 
-                    panAccumX += prevx - gesture.x;
-                    panAccumY += gesture.y - prevy;
+                    int dxPix = prevx - gesture.x;
+                    int dyPix = gesture.y - prevy;
+                    gPanAccumX += dxPix;
+                    gPanAccumY += dyPix;
 
-                    gMouseWheelX = panAccumX / 32;
-                    gMouseWheelY = panAccumY / 24;
-                    panAccumX -= gMouseWheelX * 32;
-                    panAccumY -= gMouseWheelY * 24;
+                    unsigned int panDt = nowTicks - gPanLastTicks;
+                    if (panDt > 0) {
+                        gFlingVX = 0.7 * gFlingVX + 0.3 * (1000.0 * dxPix / panDt);
+                        gFlingVY = 0.7 * gFlingVY + 0.3 * (1000.0 * dyPix / panDt);
+                        gPanLastTicks = nowTicks;
+                    }
+
+                    if (gesture.state == kEnded
+                        && gFlingVX * gFlingVX + gFlingVY * gFlingVY > 150.0 * 150.0) {
+                        gFlingActive = true;
+                        gFlingLastTicks = nowTicks;
+                    }
+
+                    gMouseWheelX = gPanAccumX / 32;
+                    gMouseWheelY = gPanAccumY / 24;
+                    gPanAccumX -= gMouseWheelX * 32;
+                    gPanAccumY -= gMouseWheelY * 24;
 
                     if (gMouseWheelX != 0 || gMouseWheelY != 0) {
                         gMouseEvent |= MOUSE_EVENT_WHEEL;
@@ -601,6 +634,42 @@ void _mouse_info()
         }
 
         return;
+    }
+
+    // Scroll inertia: keep panning after the fingers lift, decaying
+    // exponentially, until it slows down or a new touch cancels it.
+    if (gFlingActive) {
+        unsigned int nowTicks = SDL_GetTicks();
+        unsigned int flingDt = nowTicks - gFlingLastTicks;
+        if (flingDt > 0) {
+            gFlingLastTicks = nowTicks;
+
+            gPanAccumX += static_cast<int>(gFlingVX * flingDt / 1000.0);
+            gPanAccumY += static_cast<int>(gFlingVY * flingDt / 1000.0);
+
+            double decay = exp(-static_cast<double>(flingDt) / 300.0);
+            gFlingVX *= decay;
+            gFlingVY *= decay;
+            if (gFlingVX * gFlingVX + gFlingVY * gFlingVY < 40.0 * 40.0) {
+                gFlingActive = false;
+            }
+
+            int ticksX = gPanAccumX / 32;
+            int ticksY = gPanAccumY / 24;
+            if (ticksX != 0 || ticksY != 0) {
+                gPanAccumX -= ticksX * 32;
+                gPanAccumY -= ticksY * 24;
+                gMouseWheelX = ticksX;
+                gMouseWheelY = ticksY;
+                gMouseEvent |= MOUSE_EVENT_WHEEL;
+                _raw_buttons |= MOUSE_EVENT_WHEEL;
+            }
+
+            // The fling is user-initiated motion - keep the loop at full
+            // rate so it stays smooth.
+            sharedFpsLimiter.notifyActivity();
+            return;
+        }
     }
 
     int x;

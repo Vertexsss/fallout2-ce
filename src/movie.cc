@@ -798,6 +798,14 @@ void _movieUpdate()
         return;
     }
 
+    // A playing movie is continuous animation even when the player decides
+    // to drop a frame (a dropped frame draws nothing, so it would otherwise
+    // count as "no activity"). Without this, one loading hiccup longer than
+    // the idle grace throttles the loop to idle FPS, the player then runs
+    // permanently late and drops every remaining frame - leaving the first
+    // frame on screen with audio playing underneath.
+    sharedFpsLimiter.notifyActivity();
+
     if ((gMovieFlags & MOVIE_EXTENDED_FLAG_STOP_REQUESTED) != 0) {
         debugPrint("Movie aborted\n");
         _cleanupMovie(true);

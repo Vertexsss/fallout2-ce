@@ -1189,9 +1189,22 @@ static void _MVE_sndResume()
 // 0x4F5CB0 nfConfig
 static int nfConfig(int width, int height, int a3, int is_16_bpp)
 {
+    int newWidth = 8 * width;
+    int newHeight = 8 * height * a3;
+
+    // Fan-encoded movies re-issue this opcode mid-stream. Reassigning
+    // nf_buf_cur/nf_buf_prv from the allocator roots loses the current
+    // front/back swap parity, so delta frames decode against the wrong
+    // reference and the picture dissolves into noise until the next full
+    // frame. When the geometry is unchanged, keep the decode state as is.
+    if (nf_buf_cur != nullptr && nf_buf_prv != nullptr
+        && nf_width == newWidth && nf_height == newHeight && byte_6B4016 == a3) {
+        return 1;
+    }
+
     byte_6B4016 = a3;
-    nf_width = 8 * width;
-    nf_height = 8 * height * a3;
+    nf_width = newWidth;
+    nf_height = newHeight;
 
     nf_buf_cur = (unsigned char*)MVE_MemAlloc(&nf_mem_cur, nf_width * nf_height);
     if (nf_buf_cur == nullptr) {
@@ -1202,6 +1215,10 @@ static int nfConfig(int width, int height, int a3, int is_16_bpp)
     if (nf_buf_prv == nullptr) {
         return 0;
     }
+
+    // Deterministic black instead of whatever the allocator hands back.
+    memset(nf_buf_cur, 0, nf_width * nf_height);
+    memset(nf_buf_prv, 0, nf_width * nf_height);
 
     dword_6B3D00 = 8 * a3 * nf_width;
     dword_6B3CEC = 7 * a3 * nf_width;

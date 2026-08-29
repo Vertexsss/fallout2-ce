@@ -684,6 +684,15 @@ int mapScrollPixels(int dxPixels, int dyPixels)
 
     int finalBiasX = movedX ? residualX : shownX;
     int finalBiasY = movedY ? residualY : shownY;
+
+    // Fully blocked and nothing visually changed - do not burn a full
+    // software redraw per touch event while pushing into a corner.
+    bool steppedX = stepsX != 0 && movedX;
+    bool steppedY = stepsY != 0 && movedY;
+    if (!steppedX && !steppedY && finalBiasX == shownX && finalBiasY == shownY) {
+        return (movedX || movedY) ? 0 : -1;
+    }
+
     tileSetViewPixelBias(finalBiasX, finalBiasY);
 
     tileWindowRefresh();

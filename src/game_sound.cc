@@ -1,5 +1,8 @@
 #include "game_sound.h"
 
+#include "fps_limiter.h"
+#include "lips.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -1558,6 +1561,15 @@ int soundPlayFile(const char* name)
 // 0x451A00
 void _gsound_bkg_proc()
 {
+    // Speech and lip sync stream, sync and STOP from this loop. While the
+    // player listens without touching the screen the idle limiter would run
+    // it at 15fps, making phoneme sync and the end-of-line stop 66-200ms
+    // sloppy - a looping voice line audibly replays its start ("stutter").
+    if ((gSpeechSound != nullptr && soundIsPlaying(gSpeechSound))
+        || (gLipsData.flags & LIPS_FLAG_0x02) != 0) {
+        sharedFpsLimiter.notifyActivity();
+    }
+
     soundContinueAll();
     audioEngineMaintenance();
 }

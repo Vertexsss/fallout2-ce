@@ -398,7 +398,29 @@ bool audioEngineSoundBufferGetCurrentPosition(int soundBufferIndex, unsigned int
     }
 
     if (readPosPtr != nullptr) {
-        *readPosPtr = soundBuffer->pos;
+        // pos tracks how much source has been FED into the resampler stream,
+        // and feeding happens in large batches - the audible position lags
+        // by whatever still sits in the stream. Lip sync and end-of-speech
+        // detection read this, so convert back to playback-accurate bytes.
+        unsigned int pos = soundBuffer->pos;
+        if (soundBuffer->stream != nullptr) {
+            int queuedDst = SDL_AudioStreamAvailable(soundBuffer->stream);
+            if (queuedDst > 0) {
+                long long srcByteRate = (long long)soundBuffer->rate * soundBuffer->channels * (soundBuffer->bitsPerSample / 8);
+                long long dstByteRate = (long long)gAudioEngineSpec.freq * gAudioEngineSpec.channels * (SDL_AUDIO_BITSIZE(gAudioEngineSpec.format) / 8);
+                if (srcByteRate > 0 && dstByteRate > 0) {
+                    unsigned int queuedSrc = (unsigned int)(queuedDst * srcByteRate / dstByteRate);
+                    if (pos >= queuedSrc) {
+                        pos -= queuedSrc;
+                    } else if (soundBuffer->looping && soundBuffer->size > 0) {
+                        pos = (unsigned int)((pos + (unsigned long long)soundBuffer->size - queuedSrc % soundBuffer->size) % soundBuffer->size);
+                    } else {
+                        pos = 0;
+                    }
+                }
+            }
+        }
+        *readPosPtr = pos;
     }
 
     if (writePosPtr != nullptr) {

@@ -1002,10 +1002,21 @@ static bool heapBuildFreeBlocksList(Heap* heap)
 
     unsigned char* ptr = heap->data;
 
+    // Defensive bound: block counters and sizes can be corrupted by earlier
+    // misuse; without this check the walk runs off the heap and segfaults
+    // (upstream issue #529). Fail gracefully instead.
+    unsigned char* heapEnd = heap->data + heap->size;
+
     int freeBlockIndex = 0;
     while (blocksLength != 0) {
         if (freeBlockIndex >= heap->freeBlocks) {
             break;
+        }
+
+        if (ptr < heap->data || ptr + HEAP_BLOCK_OVERHEAD_SIZE > heapEnd) {
+            debugPrint("<[heap free list walk out of bounds]>
+");
+            return false;
         }
 
         HeapBlockHeader* blockHeader = (HeapBlockHeader*)ptr;
@@ -1014,6 +1025,9 @@ static bool heapBuildFreeBlocksList(Heap* heap)
             while (blocksLength > 1) {
                 // Grab next block and check if's a free block.
                 HeapBlockHeader* nextBlockHeader = (HeapBlockHeader*)(ptr + blockHeader->size + HEAP_BLOCK_OVERHEAD_SIZE);
+                if ((unsigned char*)nextBlockHeader + HEAP_BLOCK_OVERHEAD_SIZE > heapEnd) {
+                    break;
+                }
                 if (nextBlockHeader->state != HEAP_BLOCK_STATE_FREE) {
                     break;
                 }

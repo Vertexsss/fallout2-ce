@@ -864,11 +864,24 @@ void mouseGetPosition(int* xPtr, int* yPtr)
 // 0x4CAA04
 void _mouse_set_position(int x, int y)
 {
+    // Teleporting a visible cursor must erase it at the old position first,
+    // or its image stays baked into the screen buffer (touch taps warp the
+    // cursor constantly; during idle nothing repaints over the leftovers).
+    // Both refreshes land within one frame, so nothing flickers.
+    bool wasVisible = gMouseInitialized && !gCursorIsHidden;
+    if (wasVisible) {
+        mouseHideCursor();
+    }
+
     gMouseCursorX = x - _mouse_hotx;
     gMouseCursorY = y - _mouse_hoty;
     _raw_y = y - _mouse_hoty;
     _raw_x = x - _mouse_hotx;
     _mouse_clip();
+
+    if (wasVisible) {
+        mouseShowCursor();
+    }
 }
 
 // 0x4CAA38

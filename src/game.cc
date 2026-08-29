@@ -53,6 +53,7 @@
 #include "scripts.h"
 #include "settings.h"
 #include "settings_screen.h"
+#include "touch_overlay.h"
 #include "sfall_arrays.h"
 #include "sfall_callbacks.h"
 #include "sfall_config.h"
@@ -636,6 +637,9 @@ int gameHandleKey(int eventCode, bool isInCombatMode)
         break;
     case KEY_F11:
         settingsScreenShow();
+        break;
+    case kTouchOverlayHighlightKeyCode:
+        touchOverlayToggleHighlight();
         break;
     case KEY_TAB:
         if (interfaceBarEnabled()

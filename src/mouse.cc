@@ -13,6 +13,7 @@
 #include "platform/ios/quick_toolbar.h"
 #include "svga.h"
 #include "touch.h"
+#include "touch_overlay.h"
 #include "window_manager.h"
 
 namespace fallout {
@@ -502,6 +503,14 @@ void _mouse_info()
                 && gesture.numberOfTouches == 1
                 && quickToolbarContainsPoint(gesture.x, gesture.y)) {
                 if (quickToolbarHandleTap(gesture.x, gesture.y)) {
+                    break;
+                }
+            }
+
+            if (!touch_get_touchscreen_mode()
+                && gesture.numberOfTouches == 1
+                && touchOverlayContainsPoint(gesture.x, gesture.y)) {
+                if (touchOverlayHandleTap(gesture.x, gesture.y)) {
                     break;
                 }
             }

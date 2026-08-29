@@ -33,24 +33,27 @@ struct Row {
     void (*next)();
 };
 
+// The engine refuses to render below 640x480, silently resetting scale to 1
+// - on screens where half resolution is below that, the toggle is a no-op.
+bool scaleApplicable()
+{
+    return settings.screen.resolution_x / 2 >= 640 && settings.screen.resolution_y / 2 >= 480;
+}
+
 const char* scaleText()
 {
+    if (!scaleApplicable()) {
+        return "N/A";
+    }
     return settings.screen.scale >= 2 ? "2X *" : "1X *";
 }
 
 void scaleNext()
 {
+    if (!scaleApplicable()) {
+        return;
+    }
     settings.screen.scale = settings.screen.scale >= 2 ? 1 : 2;
-}
-
-const char* barWidthText()
-{
-    return settings.ui.iface_bar_width >= 800 ? "800 *" : "640 *";
-}
-
-void barWidthNext()
-{
-    settings.ui.iface_bar_width = settings.ui.iface_bar_width >= 800 ? 640 : 800;
 }
 
 const char* barModeText()
@@ -114,7 +117,6 @@ void fpsCounterNext()
 
 constexpr Row kRows[] = {
     { "RENDER SCALE", scaleText, scaleNext },
-    { "IFACE BAR WIDTH", barWidthText, barWidthNext },
     { "IFACE BAR MODE", barModeText, barModeNext },
     { "IDLE FPS", idleFpsText, idleFpsNext },
     { "COLOR CYCLE SPEED", cycleText, cycleNext },

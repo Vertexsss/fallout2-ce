@@ -288,6 +288,8 @@ set(FALLOUT_PLATFORM_SOURCES
     "src/settings.h"
     "src/settings_screen.cc"
     "src/settings_screen.h"
+    "src/touch_overlay.cc"
+    "src/touch_overlay.h"
     "src/sfall_config.cc"
     "src/sfall_config.h"
     "src/sfall_ext.cc"

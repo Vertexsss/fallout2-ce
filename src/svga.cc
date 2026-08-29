@@ -50,8 +50,14 @@ SDL_Surface* gSdlTextureSurface = nullptr;
 FpsLimiter sharedFpsLimiter;
 
 // Union of everything written into `gSdlTextureSurface` since the last present.
-static bool gRenderDirty = false;
-static SDL_Rect gRenderDirtyRect;
+// Distant small updates (the hex cursor near the bottom and an indicator in
+// a corner) must not be fused into one near-fullscreen union - each rect is
+// converted and uploaded separately. Overflow falls back to merging.
+constexpr int kMaxDirtyRects = 16;
+// Two rects this close (or overlapping) get merged.
+constexpr int kDirtyMergeSlackPx = 32;
+static SDL_Rect gDirtyRects[kMaxDirtyRects];
+static int gDirtyRectCount = 0;
 
 
 // Which palette indices currently appear on the game surface. Lets ambient
@@ -62,25 +68,49 @@ static bool gPaletteIndexPresent[256];
 static bool gPalettePresenceValid = false;
 static unsigned int gPalettePresenceScanTicks = 0;
 
-// Bounding box of all pixels using the cycling index range (229-255),
-// computed alongside the presence map. A cycling tick only re-colors those
-// pixels, so conversion and upload can be limited to this region.
+// Cell grid of pixels using the cycling index range (229-255), computed
+// alongside the presence map. A cycling tick only re-colors those pixels;
+// per-cell bounding boxes keep distant fires from fusing into one
+// near-fullscreen region.
 static constexpr int kCycleRangeStart = 229;
-static SDL_Rect gCycleBBox;
-static bool gCycleBBoxNonEmpty = false;
+constexpr int kCycleCellSize = 160;
+constexpr int kCycleGridMaxCols = 16;
+constexpr int kCycleGridMaxRows = 10;
+struct CycleCell {
+    short minX, minY, maxX, maxY;
+};
+static CycleCell gCycleCells[kCycleGridMaxCols * kCycleGridMaxRows];
+static int gCycleGridCols = 0;
+static int gCycleGridRows = 0;
+static bool gCycleAnyPresent = false;
+// The cell grid has been built at least once; stale cells are still a far
+// better approximation than "the whole screen" - fires do not move between
+// rescans, and anything new is caught by the next rescan within 250ms.
+static bool gCycleCellsEverBuilt = false;
 
 // Rendering statistics for the FPS counter (power tuning aid).
 static int gStatPresents = 0;
 static long long gStatUploadBytes = 0;
+static int gStatRects = 0;
+static int gStatMaxRectW = 0;
+static int gStatMaxRectH = 0;
 
 static void paletteRebuildPresence()
 {
     memset(gPaletteIndexPresent, 0, sizeof(gPaletteIndexPresent));
 
-    int minX = gSdlSurface->w;
-    int minY = gSdlSurface->h;
-    int maxX = -1;
-    int maxY = -1;
+    gCycleGridCols = (gSdlSurface->w + kCycleCellSize - 1) / kCycleCellSize;
+    gCycleGridRows = (gSdlSurface->h + kCycleCellSize - 1) / kCycleCellSize;
+    if (gCycleGridCols > kCycleGridMaxCols) gCycleGridCols = kCycleGridMaxCols;
+    if (gCycleGridRows > kCycleGridMaxRows) gCycleGridRows = kCycleGridMaxRows;
+
+    for (int i = 0; i < gCycleGridCols * gCycleGridRows; i++) {
+        gCycleCells[i] = { 0x7FFF, 0x7FFF, -1, -1 };
+    }
+    gCycleAnyPresent = false;
+
+    const int cellW = (gSdlSurface->w + gCycleGridCols - 1) / gCycleGridCols;
+    const int cellH = (gSdlSurface->h + gCycleGridRows - 1) / gCycleGridRows;
 
     const unsigned char* row = static_cast<const unsigned char*>(gSdlSurface->pixels);
     for (int y = 0; y < gSdlSurface->h; y++) {
@@ -88,21 +118,19 @@ static void paletteRebuildPresence()
             unsigned char index = row[x];
             gPaletteIndexPresent[index] = true;
             if (index >= kCycleRangeStart) {
-                if (x < minX) minX = x;
-                if (x > maxX) maxX = x;
-                if (y < minY) minY = y;
-                if (y > maxY) maxY = y;
+                CycleCell& cell = gCycleCells[(y / cellH) * gCycleGridCols + (x / cellW)];
+                if (x < cell.minX) cell.minX = static_cast<short>(x);
+                if (x > cell.maxX) cell.maxX = static_cast<short>(x);
+                if (y < cell.minY) cell.minY = static_cast<short>(y);
+                if (y > cell.maxY) cell.maxY = static_cast<short>(y);
+                gCycleAnyPresent = true;
             }
         }
         row += gSdlSurface->pitch;
     }
 
-    gCycleBBoxNonEmpty = maxX >= 0;
-    if (gCycleBBoxNonEmpty) {
-        gCycleBBox = { minX, minY, maxX - minX + 1, maxY - minY + 1 };
-    }
-
     gPalettePresenceValid = true;
+    gCycleCellsEverBuilt = true;
 }
 
 // 0x4CAD08 init_mode_320_200
@@ -346,8 +374,15 @@ void directDrawSetPaletteInRange(unsigned char* palette, int start, int count)
         // those pixels are, restrict the re-conversion to their bounding box.
         if (visibleChange) {
             const bool cycleOnly = start >= kCycleRangeStart && start + count <= 256;
-            if (cycleOnly && gPalettePresenceValid && gCycleBBoxNonEmpty) {
-                renderMarkDirtyAmbient(&gCycleBBox);
+            if (cycleOnly && gCycleCellsEverBuilt && gCycleAnyPresent) {
+                for (int i = 0; i < gCycleGridCols * gCycleGridRows; i++) {
+                    const CycleCell& cell = gCycleCells[i];
+                    if (cell.maxX >= 0) {
+                        SDL_Rect r = { cell.minX, cell.minY,
+                            cell.maxX - cell.minX + 1, cell.maxY - cell.minY + 1 };
+                        renderMarkDirtyAmbient(&r);
+                    }
+                }
             } else {
                 renderMarkDirtyAmbient(nullptr);
             }
@@ -499,9 +534,9 @@ static bool createRenderer(int width, int height)
 
 static void destroyRenderer()
 {
-    // The recorded dirty region is only meaningful for the surface it was
-    // recorded against - forget it before that surface goes away.
-    gRenderDirty = false;
+    // The recorded dirty regions are only meaningful for the surface they
+    // were recorded against - forget them before that surface goes away.
+    gDirtyRectCount = 0;
 
     if (gSdlTextureSurface != nullptr) {
         SDL_FreeSurface(gSdlTextureSurface);
@@ -551,21 +586,30 @@ void renderFpsCounter()
 
     static double presentsPerSec = 0.0;
     static double uploadMbPerSec = 0.0;
+    static double rectsPerSec = 0.0;
+    static int maxRectW = 0;
+    static int maxRectH = 0;
 
     unsigned int elapsed = now - sampleStartTicks;
     if (elapsed >= 500) {
         fps = sampleFrames * 1000.0 / elapsed;
         presentsPerSec = gStatPresents * 1000.0 / elapsed;
         uploadMbPerSec = gStatUploadBytes * 1000.0 / elapsed / (1024.0 * 1024.0);
+        rectsPerSec = gStatRects * 1000.0 / elapsed;
+        maxRectW = gStatMaxRectW;
+        maxRectH = gStatMaxRectH;
         sampleFrames = 0;
         gStatPresents = 0;
         gStatUploadBytes = 0;
+        gStatRects = 0;
+        gStatMaxRectW = 0;
+        gStatMaxRectH = 0;
         sampleStartTicks = now;
     }
 
-    char text[64];
-    snprintf(text, sizeof(text), "FPS: %.1f  P: %.0f/s  U: %.1fMB/s  T: %u",
-        fps, presentsPerSec, uploadMbPerSec, sharedFpsLimiter.lastTargetFps());
+    char text[96];
+    snprintf(text, sizeof(text), "FPS: %.1f  P: %.0f/s  U: %.1fMB/s  T: %u  R: %.0f/s  L: %dx%d",
+        fps, presentsPerSec, uploadMbPerSec, sharedFpsLimiter.lastTargetFps(), rectsPerSec, maxRectW, maxRectH);
 
     ScopedFont font(101);
 
@@ -625,11 +669,33 @@ void renderMarkDirtyAmbient(const SDL_Rect* rect)
         return;
     }
 
-    if (gRenderDirty) {
-        SDL_UnionRect(&gRenderDirtyRect, &clipped, &gRenderDirtyRect);
+    // Merge into any rect that overlaps or lies within the slack distance;
+    // repeat, since a merge can bridge previously separate rects.
+    bool merged = true;
+    while (merged) {
+        merged = false;
+        for (int i = 0; i < gDirtyRectCount; i++) {
+            SDL_Rect inflated = gDirtyRects[i];
+            inflated.x -= kDirtyMergeSlackPx;
+            inflated.y -= kDirtyMergeSlackPx;
+            inflated.w += 2 * kDirtyMergeSlackPx;
+            inflated.h += 2 * kDirtyMergeSlackPx;
+
+            if (SDL_HasIntersection(&inflated, &clipped) == SDL_TRUE) {
+                SDL_UnionRect(&gDirtyRects[i], &clipped, &clipped);
+                gDirtyRects[i] = gDirtyRects[gDirtyRectCount - 1];
+                gDirtyRectCount--;
+                merged = true;
+                break;
+            }
+        }
+    }
+
+    if (gDirtyRectCount < kMaxDirtyRects) {
+        gDirtyRects[gDirtyRectCount++] = clipped;
     } else {
-        gRenderDirtyRect = clipped;
-        gRenderDirty = true;
+        // Overflow: fold into the first rect.
+        SDL_UnionRect(&gDirtyRects[0], &clipped, &gDirtyRects[0]);
     }
 }
 
@@ -641,35 +707,44 @@ void renderPresent()
 
     // Nothing changed since the last present - do not burn a texture upload,
     // a draw call and a swap on an identical frame.
-    if (!gRenderDirty) {
+    if (gDirtyRectCount == 0) {
         return;
     }
 
-    // Convert the dirty union from indexed to RGB exactly once per presented
-    // frame, with the palette as it stands now. Layered redraws of the same
-    // area within a frame no longer convert repeatedly.
-    if (gSdlSurface != nullptr) {
-        SDL_Rect src = gRenderDirtyRect;
-        SDL_Rect dst = gRenderDirtyRect;
-        SDL_BlitSurface(gSdlSurface, &src, gSdlTextureSurface, &dst);
+    // Convert and upload every dirty rect separately - each exactly once per
+    // presented frame, with the palette as it stands now.
+    for (int i = 0; i < gDirtyRectCount; i++) {
+        const SDL_Rect& r = gDirtyRects[i];
+
+        if (gSdlSurface != nullptr) {
+            SDL_Rect src = r;
+            SDL_Rect dst = r;
+            SDL_BlitSurface(gSdlSurface, &src, gSdlTextureSurface, &dst);
+        }
+
+        const unsigned char* pixels = static_cast<const unsigned char*>(gSdlTextureSurface->pixels)
+            + static_cast<size_t>(r.y) * gSdlTextureSurface->pitch
+            + static_cast<size_t>(r.x) * gSdlTextureSurface->format->BytesPerPixel;
+
+        SDL_UpdateTexture(gSdlTexture, &r, pixels, gSdlTextureSurface->pitch);
+
+        gStatUploadBytes += static_cast<long long>(r.w) * r.h * gSdlTextureSurface->format->BytesPerPixel;
+        gStatRects++;
+        if (static_cast<long long>(r.w) * r.h > static_cast<long long>(gStatMaxRectW) * gStatMaxRectH) {
+            gStatMaxRectW = r.w;
+            gStatMaxRectH = r.h;
+        }
     }
 
     sharedFpsLimiter.notifyPresent();
     gStatPresents++;
-    gStatUploadBytes += static_cast<long long>(gRenderDirtyRect.w) * gRenderDirtyRect.h * gSdlTextureSurface->format->BytesPerPixel;
-
-    const unsigned char* pixels = static_cast<const unsigned char*>(gSdlTextureSurface->pixels)
-        + static_cast<size_t>(gRenderDirtyRect.y) * gSdlTextureSurface->pitch
-        + static_cast<size_t>(gRenderDirtyRect.x) * gSdlTextureSurface->format->BytesPerPixel;
-
-    SDL_UpdateTexture(gSdlTexture, &gRenderDirtyRect, pixels, gSdlTextureSurface->pitch);
     SDL_RenderClear(gSdlRenderer);
     SDL_RenderCopy(gSdlRenderer, gSdlTexture, nullptr, nullptr);
     // render movie SDL texture if present
     movieRenderDirectOverlay();
     SDL_RenderPresent(gSdlRenderer);
 
-    gRenderDirty = false;
+    gDirtyRectCount = 0;
 }
 
 } // namespace fallout

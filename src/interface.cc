@@ -38,6 +38,7 @@
 #include "stat.h"
 #include "svga.h"
 #include "text_font.h"
+#include "touch_overlay.h"
 #include "tile.h"
 #include "window_manager.h"
 
@@ -664,6 +665,7 @@ int interfaceInit()
 
     quickToolbarSetEnabled(settings.ui.quick_toolbar_visible);
     quickToolbarInit();
+    touchOverlayInit();
 
     return 0;
 }
@@ -689,6 +691,7 @@ void interfaceReset()
 void interfaceFree()
 {
     quickToolbarFree();
+    touchOverlayFree();
 
     if (gInterfaceBarWindow != -1) {
         // SFALL
@@ -870,6 +873,7 @@ void interfaceBarHide()
     }
 
     quickToolbarHide();
+    touchOverlayHide();
 
     // SFALL
     sidePanelsHide();
@@ -892,6 +896,7 @@ void interfaceBarShow()
     }
 
     quickToolbarShow();
+    touchOverlayShow();
 
     // SFALL
     sidePanelsShow();

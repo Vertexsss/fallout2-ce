@@ -165,6 +165,8 @@ void initSettingsRegistry(bool isMapper)
     SETTING_P(windowed, clamp(WindowMode::Fullscreen, WindowMode::WindowedFullscreen));
     SETTING(mouse_lock);
     SETTING_P(scale, clamp(1, 4));
+    SETTING_P(idle_fps, clamp(1, 60));
+    SETTING_P(idle_grace_ms, clamp(50, 10000));
 #undef SECT
 
 #define SECT ui

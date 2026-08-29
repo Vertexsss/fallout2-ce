@@ -58,6 +58,29 @@ static SDL_Rect gRenderDirtyRect;
 // cost one blit instead of several.
 static bool gPaletteBlitPending = false;
 
+// Which palette indices currently appear on the game surface. Lets ambient
+// palette animation (color cycling) be skipped entirely when the cycled
+// colors are not on screen - the "very fast" group ticks 30 times per second
+// on every map whether or not its color is visible.
+static bool gPaletteIndexPresent[256];
+static bool gPalettePresenceValid = false;
+static unsigned int gPalettePresenceScanTicks = 0;
+
+static void paletteRebuildPresence()
+{
+    memset(gPaletteIndexPresent, 0, sizeof(gPaletteIndexPresent));
+
+    const unsigned char* row = static_cast<const unsigned char*>(gSdlSurface->pixels);
+    for (int y = 0; y < gSdlSurface->h; y++) {
+        for (int x = 0; x < gSdlSurface->w; x++) {
+            gPaletteIndexPresent[row[x]] = true;
+        }
+        row += gSdlSurface->pitch;
+    }
+
+    gPalettePresenceValid = true;
+}
+
 // 0x4CAD08 init_mode_320_200
 int _init_mode_320_200()
 {
@@ -125,6 +148,9 @@ int _GNW95_init_mode_ex(int width, int height, int bpp)
     width = settings.screen.resolution_x;
     height = settings.screen.resolution_y;
     int scale = settings.screen.scale;
+
+    sharedFpsLimiter.setIdleFps(settings.screen.idle_fps);
+    sharedFpsLimiter.setIdleGrace(settings.screen.idle_grace_ms);
 
     // Only allow scaling if resulting game resolution is >= 640x480
     if ((width / scale) < 640 || (height / scale) < 480) {
@@ -265,14 +291,37 @@ void directDrawSetPaletteInRange(unsigned char* palette, int start, int count)
             }
         }
 
-        SDL_SetPaletteColors(gSdlSurface->format->palette, colors, start, count);
+        SDL_Palette* sdlPalette = gSdlSurface->format->palette;
 
-        // Ambient palette animation (color cycling) - the "very fast" group
-        // ticks 30 times per second on every map. Defer the re-conversion to
-        // the next present and do not count it as user activity, so the idle
-        // FPS limiter still engages on otherwise static scenes.
-        gPaletteBlitPending = true;
-        renderMarkDirtyAmbient(nullptr);
+        // Rebuild the presence map when it is stale, at most 4 times per
+        // second; while stale, assume every index is visible (safe).
+        unsigned int now = SDL_GetTicks();
+        if (!gPalettePresenceValid && now - gPalettePresenceScanTicks >= 250) {
+            paletteRebuildPresence();
+            gPalettePresenceScanTicks = now;
+        }
+
+        bool visibleChange = false;
+        for (int index = 0; index < count; index++) {
+            const SDL_Color& current = sdlPalette->colors[start + index];
+            if (current.r != colors[index].r || current.g != colors[index].g || current.b != colors[index].b) {
+                if (!gPalettePresenceValid || gPaletteIndexPresent[start + index]) {
+                    visibleChange = true;
+                    break;
+                }
+            }
+        }
+
+        SDL_SetPaletteColors(sdlPalette, colors, start, count);
+
+        // Ambient palette animation (color cycling). Defer the re-conversion
+        // to the next present and do not count it as user activity, so the
+        // idle FPS limiter still engages on otherwise static scenes. If the
+        // cycled colors are not even on screen, skip the update entirely.
+        if (visibleChange) {
+            gPaletteBlitPending = true;
+            renderMarkDirtyAmbient(nullptr);
+        }
     }
 }
 
@@ -325,6 +374,9 @@ void _GNW95_ShowRect(unsigned char* src, int srcPitch, int unused, int srcX, int
 
     blitBufferToBuffer(src + srcPitch * srcY + srcX, srcWidth, srcHeight, srcPitch, (unsigned char*)gSdlSurface->pixels + gSdlSurface->pitch * destY + destX, gSdlSurface->pitch);
 
+    // Surface content changed - the palette presence map is stale.
+    gPalettePresenceValid = false;
+
     SDL_Rect srcRect;
     srcRect.x = destX;
     srcRect.y = destY;
@@ -353,6 +405,8 @@ void _GNW95_zero_vid_mem()
         memset(surface, 0, gSdlSurface->w);
         surface += gSdlSurface->pitch;
     }
+
+    gPalettePresenceValid = false;
 
     SDL_BlitSurface(gSdlSurface, nullptr, gSdlTextureSurface, nullptr);
     renderMarkDirty(nullptr);

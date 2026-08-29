@@ -37,6 +37,11 @@ struct ScreenSettings {
     WindowMode windowed = WindowMode::Fullscreen;
     bool mouse_lock = false;
     int scale = 1;
+
+    // Frame rate to drop to when nothing is drawn and the user is not
+    // interacting for idle_grace_ms (power saving; mostly for handhelds).
+    int idle_fps = 15;
+    int idle_grace_ms = 400;
 };
 
 struct UISettings {

@@ -175,6 +175,7 @@ void initSettingsRegistry(bool isMapper)
     SETTING_P(main_menu_scale_mode, clamp(0, 2));
     SETTING(in_game_menu_help);
     SETTING(free_scroll);
+    SETTING(edge_scroll);
     SETTING(dude_pointer);
     SETTING(iface_bar_mode);
     SETTING(perks_progress_bar);

@@ -163,6 +163,17 @@ void dudePointerNext()
     settings.ui.dude_pointer = !settings.ui.dude_pointer;
 }
 
+const char* edgeScrollText()
+{
+    return settings.ui.edge_scroll ? "ON" : "OFF";
+}
+
+void edgeScrollNext()
+{
+    // Read per refresh - applies instantly.
+    settings.ui.edge_scroll = !settings.ui.edge_scroll;
+}
+
 const char* freeScrollText()
 {
     return settings.ui.free_scroll ? "ON" : "OFF";
@@ -217,6 +228,7 @@ constexpr Row kRows[] = {
     { "FPS COUNTER", fpsCounterText, fpsCounterNext },
     { "TOUCH TOOLBAR", toolbarText, toolbarNext },
     { "FREE CAMERA", freeScrollText, freeScrollNext },
+    { "EDGE SCROLL", edgeScrollText, edgeScrollNext },
     { "MAP STENCIL", stencilText, stencilNext },
     { "PLAYER ARROW", dudePointerText, dudePointerNext },
     { "UI SCALE", uiScaleText, uiScaleNext },

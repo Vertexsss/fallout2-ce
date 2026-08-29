@@ -2594,20 +2594,26 @@ int gameMouseHandleScrolling(int x, int y, int cursor)
 
     int flags = 0;
 
-    if (x <= _scr_size.left) {
-        flags |= SCROLLABLE_W;
-    }
+    // Edge scrolling is optional on the touch build: the trackpad cursor
+    // parked at a screen edge must not drag the camera - two-finger panning
+    // and the free camera cover map scrolling. The clipped-area cursor logic
+    // below still runs with flags == 0.
+    if (settings.ui.edge_scroll) {
+        if (x <= _scr_size.left) {
+            flags |= SCROLLABLE_W;
+        }
 
-    if (x >= _scr_size.right) {
-        flags |= SCROLLABLE_E;
-    }
+        if (x >= _scr_size.right) {
+            flags |= SCROLLABLE_E;
+        }
 
-    if (y <= _scr_size.top) {
-        flags |= SCROLLABLE_N;
-    }
+        if (y <= _scr_size.top) {
+            flags |= SCROLLABLE_N;
+        }
 
-    if (y >= _scr_size.bottom) {
-        flags |= SCROLLABLE_S;
+        if (y >= _scr_size.bottom) {
+            flags |= SCROLLABLE_S;
+        }
     }
 
     // Click-to-scroll mode (mapper Alt-Z): only scroll while the left button is held at an

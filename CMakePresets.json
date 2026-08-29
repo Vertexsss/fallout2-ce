@@ -137,7 +137,9 @@
                 "darwin-base"
             ],
             "cacheVariables": {
-                "CMAKE_SYSTEM_NAME": "iOS"
+                "CMAKE_SYSTEM_NAME": "iOS",
+                "CMAKE_C_FLAGS_DEBUG": "-O2 -g -DNDEBUG",
+                "CMAKE_CXX_FLAGS_DEBUG": "-O2 -g -DNDEBUG"
             }
         },
         {

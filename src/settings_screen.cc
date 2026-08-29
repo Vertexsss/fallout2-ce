@@ -1,0 +1,262 @@
+#include "settings_screen.h"
+
+#include <string.h>
+
+#include "color.h"
+#include "cycle.h"
+#include "input.h"
+#include "kb.h"
+#include "settings.h"
+#include "svga.h"
+#include "text_font.h"
+#include "window_manager.h"
+
+namespace fallout {
+
+namespace {
+
+constexpr int kWindowWidth = 380;
+constexpr int kTitleHeight = 32;
+constexpr int kRowHeight = 30;
+constexpr int kFooterHeight = 56;
+constexpr int kRowPadding = 12;
+constexpr int kValueBoxWidth = 110;
+
+constexpr int kKeyRowBase = 500;
+constexpr int kKeyClose = 599;
+
+struct Row {
+    const char* label;
+    // Returns the display text for the current value.
+    const char* (*text)();
+    // Advances to the next value (cycling) and applies it live if possible.
+    void (*next)();
+};
+
+const char* scaleText()
+{
+    return settings.screen.scale >= 2 ? "2X *" : "1X *";
+}
+
+void scaleNext()
+{
+    settings.screen.scale = settings.screen.scale >= 2 ? 1 : 2;
+}
+
+const char* barWidthText()
+{
+    return settings.ui.iface_bar_width >= 800 ? "800 *" : "640 *";
+}
+
+void barWidthNext()
+{
+    settings.ui.iface_bar_width = settings.ui.iface_bar_width >= 800 ? 640 : 800;
+}
+
+const char* barModeText()
+{
+    return settings.ui.iface_bar_mode ? "OVERLAP *" : "CLASSIC *";
+}
+
+void barModeNext()
+{
+    settings.ui.iface_bar_mode = !settings.ui.iface_bar_mode;
+}
+
+const char* idleFpsText()
+{
+    switch (settings.screen.idle_fps) {
+    case 60: return "60";
+    case 30: return "30";
+    default: return "15";
+    }
+}
+
+void idleFpsNext()
+{
+    switch (settings.screen.idle_fps) {
+    case 15: settings.screen.idle_fps = 30; break;
+    case 30: settings.screen.idle_fps = 60; break;
+    default: settings.screen.idle_fps = 15; break;
+    }
+    sharedFpsLimiter.setIdleFps(settings.screen.idle_fps);
+}
+
+const char* cycleText()
+{
+    switch (settings.system.cycle_speed_factor) {
+    case 2: return "1/2";
+    case 4: return "1/4";
+    default: return "1X";
+    }
+}
+
+void cycleNext()
+{
+    int next;
+    switch (settings.system.cycle_speed_factor) {
+    case 1: next = 2; break;
+    case 2: next = 4; break;
+    default: next = 1; break;
+    }
+    cycleSetSpeedFactor(next);
+}
+
+const char* fpsCounterText()
+{
+    return settings.debug.show_fps ? "ON" : "OFF";
+}
+
+void fpsCounterNext()
+{
+    settings.debug.show_fps = !settings.debug.show_fps;
+}
+
+constexpr Row kRows[] = {
+    { "RENDER SCALE", scaleText, scaleNext },
+    { "IFACE BAR WIDTH", barWidthText, barWidthNext },
+    { "IFACE BAR MODE", barModeText, barModeNext },
+    { "IDLE FPS", idleFpsText, idleFpsNext },
+    { "COLOR CYCLE SPEED", cycleText, cycleNext },
+    { "FPS COUNTER", fpsCounterText, fpsCounterNext },
+};
+constexpr int kRowCount = static_cast<int>(sizeof(kRows) / sizeof(kRows[0]));
+constexpr int kWindowHeight = kTitleHeight + kRowCount * kRowHeight + kFooterHeight;
+
+void fillRect(unsigned char* buffer, int pitch, int x, int y, int w, int h, Color color)
+{
+    for (int row = 0; row < h; row++) {
+        memset(buffer + (y + row) * pitch + x, color, static_cast<size_t>(w));
+    }
+}
+
+void drawTextAt(unsigned char* buffer, int pitch, int x, int y, const char* text, Color color)
+{
+    fontDrawText(buffer + y * pitch + x, text, kWindowWidth - x, pitch, color);
+}
+
+void paint(int win, int selected)
+{
+    unsigned char* buffer = windowGetBuffer(win);
+    if (buffer == nullptr) {
+        return;
+    }
+
+    const Color panel = intensityColorTable[COLOR_WHITE][8];
+    const Color panelSelected = intensityColorTable[COLOR_WHITE][16];
+    const Color border = intensityColorTable[COLOR_WHITE][28];
+    const Color textColor = intensityColorTable[COLOR_LIGHT_YELLOW][48];
+    const Color labelColor = intensityColorTable[COLOR_WHITE][44];
+    const Color dimColor = intensityColorTable[COLOR_WHITE][28];
+
+    fillRect(buffer, kWindowWidth, 0, 0, kWindowWidth, kWindowHeight, panel);
+    // outer border
+    fillRect(buffer, kWindowWidth, 0, 0, kWindowWidth, 1, border);
+    fillRect(buffer, kWindowWidth, 0, kWindowHeight - 1, kWindowWidth, 1, border);
+    fillRect(buffer, kWindowWidth, 0, 0, 1, kWindowHeight, border);
+    fillRect(buffer, kWindowWidth, kWindowWidth - 1, 0, 1, kWindowHeight, border);
+
+    int lineHeight = fontGetLineHeight();
+
+    const char* title = "SCREEN SETTINGS";
+    int titleX = (kWindowWidth - fontGetStringWidth(title)) / 2;
+    drawTextAt(buffer, kWindowWidth, titleX, (kTitleHeight - lineHeight) / 2 + 2, title, textColor);
+    fillRect(buffer, kWindowWidth, kRowPadding, kTitleHeight - 2, kWindowWidth - 2 * kRowPadding, 1, border);
+
+    for (int i = 0; i < kRowCount; i++) {
+        int rowY = kTitleHeight + i * kRowHeight;
+        if (i == selected) {
+            fillRect(buffer, kWindowWidth, 2, rowY + 1, kWindowWidth - 4, kRowHeight - 2, panelSelected);
+        }
+        int textY = rowY + (kRowHeight - lineHeight) / 2 + 2;
+        drawTextAt(buffer, kWindowWidth, kRowPadding, textY, kRows[i].label, labelColor);
+
+        // value box, right-aligned
+        int boxX = kWindowWidth - kRowPadding - kValueBoxWidth;
+        fillRect(buffer, kWindowWidth, boxX, rowY + 3, kValueBoxWidth, kRowHeight - 6, panel);
+        fillRect(buffer, kWindowWidth, boxX, rowY + 3, kValueBoxWidth, 1, border);
+        fillRect(buffer, kWindowWidth, boxX, rowY + kRowHeight - 4, kValueBoxWidth, 1, border);
+        fillRect(buffer, kWindowWidth, boxX, rowY + 3, 1, kRowHeight - 6, border);
+        fillRect(buffer, kWindowWidth, boxX + kValueBoxWidth - 1, rowY + 3, 1, kRowHeight - 6, border);
+        const char* value = kRows[i].text();
+        int valueX = boxX + (kValueBoxWidth - fontGetStringWidth(value)) / 2;
+        drawTextAt(buffer, kWindowWidth, valueX, textY, value, textColor);
+    }
+
+    int footerY = kTitleHeight + kRowCount * kRowHeight;
+    drawTextAt(buffer, kWindowWidth, kRowPadding, footerY + 6, "* TAKES EFFECT AFTER RESTART", dimColor);
+
+    // close button
+    const char* closeLabel = "CLOSE";
+    int closeW = 90;
+    int closeX = (kWindowWidth - closeW) / 2;
+    int closeY = footerY + kFooterHeight - 32;
+    fillRect(buffer, kWindowWidth, closeX, closeY, closeW, 24, intensityColorTable[COLOR_WHITE][12]);
+    fillRect(buffer, kWindowWidth, closeX, closeY, closeW, 1, border);
+    fillRect(buffer, kWindowWidth, closeX, closeY + 23, closeW, 1, border);
+    fillRect(buffer, kWindowWidth, closeX, closeY, 1, 24, border);
+    fillRect(buffer, kWindowWidth, closeX + closeW - 1, closeY, 1, 24, border);
+    drawTextAt(buffer, kWindowWidth, closeX + (closeW - fontGetStringWidth(closeLabel)) / 2, closeY + (24 - lineHeight) / 2 + 2, closeLabel, textColor);
+
+    windowRefresh(win);
+}
+
+} // namespace
+
+void settingsScreenShow()
+{
+    int windowX = (screenGetWidth() - kWindowWidth) / 2;
+    int windowY = (screenGetHeight() - kWindowHeight) / 2;
+    int win = windowCreate(windowX, windowY, kWindowWidth, kWindowHeight, COLOR_BLACK, WINDOW_MODAL | WINDOW_MOVE_ON_TOP);
+    if (win == -1) {
+        return;
+    }
+
+    int oldFont = fontGetCurrent();
+    fontSetCurrent(101);
+
+    // invisible hotspot buttons: whole row cycles the value, footer closes
+    for (int i = 0; i < kRowCount; i++) {
+        buttonCreate(win, 2, kTitleHeight + i * kRowHeight + 1, kWindowWidth - 4, kRowHeight - 2,
+            -1, -1, -1, kKeyRowBase + i);
+    }
+    int footerY = kTitleHeight + kRowCount * kRowHeight;
+    buttonCreate(win, (kWindowWidth - 90) / 2, footerY + kFooterHeight - 32, 90, 24,
+        -1, -1, -1, kKeyClose);
+
+    int selected = 0;
+    paint(win, selected);
+
+    bool done = false;
+    while (!done) {
+        sharedFpsLimiter.mark();
+
+        int keyCode = inputGetInput();
+        if (keyCode == KEY_ESCAPE || keyCode == kKeyClose) {
+            done = true;
+        } else if (keyCode >= kKeyRowBase && keyCode < kKeyRowBase + kRowCount) {
+            selected = keyCode - kKeyRowBase;
+            kRows[selected].next();
+            paint(win, selected);
+        } else if (keyCode == KEY_ARROW_UP) {
+            selected = (selected + kRowCount - 1) % kRowCount;
+            paint(win, selected);
+        } else if (keyCode == KEY_ARROW_DOWN) {
+            selected = (selected + 1) % kRowCount;
+            paint(win, selected);
+        } else if (keyCode == KEY_ARROW_LEFT || keyCode == KEY_ARROW_RIGHT || keyCode == KEY_RETURN) {
+            kRows[selected].next();
+            paint(win, selected);
+        }
+
+        renderPresent();
+        sharedFpsLimiter.throttle();
+    }
+
+    settingsSave();
+
+    fontSetCurrent(oldFont);
+    windowDestroy(win);
+}
+
+} // namespace fallout

@@ -286,6 +286,8 @@ set(FALLOUT_PLATFORM_SOURCES
     "src/preferences.h"
     "src/settings.cc"
     "src/settings.h"
+    "src/settings_screen.cc"
+    "src/settings_screen.h"
     "src/sfall_config.cc"
     "src/sfall_config.h"
     "src/sfall_ext.cc"

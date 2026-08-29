@@ -52,6 +52,7 @@
 #include "random.h"
 #include "scripts.h"
 #include "settings.h"
+#include "settings_screen.h"
 #include "sfall_arrays.h"
 #include "sfall_callbacks.h"
 #include "sfall_config.h"
@@ -632,6 +633,9 @@ int gameHandleKey(int eventCode, bool isInCombatMode)
     case KEY_F10:
         soundPlayFile("ib1p1xx1");
         showQuitConfirmationDialog();
+        break;
+    case KEY_F11:
+        settingsScreenShow();
         break;
     case KEY_TAB:
         if (interfaceBarEnabled()

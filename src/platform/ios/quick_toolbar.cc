@@ -8,7 +8,9 @@
 #include "../../color.h"
 #include "../../draw.h"
 #include "../../game.h"
+#include "../../input.h"
 #include "../../interface.h"
+#include "../../kb.h"
 #include "../../skilldex.h"
 #include "../../svga.h"
 #include "../../text_font.h"
@@ -22,7 +24,8 @@ namespace {
     constexpr int kButtonWidth = 36;
     constexpr int kButtonHeight = 24;
     constexpr int kToolbarBottomMargin = 10;
-    constexpr int kToolbarWidth = kSkillButtonCount * kButtonWidth;
+    // Skill buttons plus the trailing settings (CFG) button.
+    constexpr int kToolbarWidth = (kSkillButtonCount + 1) * kButtonWidth;
     // Window is exactly the button row — no outer padding rows, so there are no
     // pixels outside the buttons that could bleed as window background.
     constexpr int kToolbarHeight = kButtonHeight;
@@ -108,6 +111,7 @@ namespace {
         for (int i = 0; i < kSkillButtonCount; i++) {
             paintPanelButton(buffer, kToolbarWidth, i * kButtonWidth, buttonY, kButtonWidth, kButtonHeight, kSkills[i].label);
         }
+        paintPanelButton(buffer, kToolbarWidth, kSkillButtonCount * kButtonWidth, buttonY, kButtonWidth, kButtonHeight, "CFG");
 
         fontSetCurrent(oldFont);
     }
@@ -212,7 +216,14 @@ bool quickToolbarHandleTap(int x, int y)
 
     int localX = x - gToolbarX;
     int index = localX / kButtonWidth;
-    if (index < 0 || index >= kSkillButtonCount) {
+    if (index < 0 || index > kSkillButtonCount) {
+        return true;
+    }
+
+    if (index == kSkillButtonCount) {
+        // CFG button - route through the regular key path so the modal
+        // settings screen opens from the main loop, not from mouse handling.
+        enqueueInputEvent(KEY_F11);
         return true;
     }
 

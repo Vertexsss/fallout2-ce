@@ -15,6 +15,9 @@ namespace fallout {
 #define MAX_TOUCHES 10
 
 #define TAP_MAXIMUM_DURATION 75
+// A tap by an extra finger while a one-finger gesture is held (secondary
+// tap = right click / cursor mode switch).
+#define SECONDARY_TAP_MAXIMUM_DURATION 200
 #define PAN_MINIMUM_MOVEMENT 4
 #define LONG_PRESS_MINIMUM_DURATION 500
 
@@ -213,6 +216,60 @@ void touch_process_gesture()
                 currentGesture.state = kChanged;
                 currentGesture.x = centroid.x;
                 currentGesture.y = centroid.y;
+                gestureEventsQueue.push(currentGesture);
+            } else if (currentGesture.numberOfTouches == 1 && activeCount == 2 && endedCount == 0) {
+                // A second finger landed while a one-finger gesture is held.
+                // Keep the gesture alive following the primary (earliest)
+                // finger: a quick lift makes a secondary tap (right click),
+                // a longer hold converts into two-finger recognition (pan).
+                int primary = active[0];
+                int secondary = active[1];
+                if (touches[primary].startTimestamp > touches[secondary].startTimestamp) {
+                    std::swap(primary, secondary);
+                }
+
+                if (SDL_GetTicks() - touches[secondary].startTimestamp > SECONDARY_TAP_MAXIMUM_DURATION) {
+                    currentGesture.state = kEnded;
+                    gestureEventsQueue.push(currentGesture);
+                    currentGesture.type = kUnrecognized;
+
+                    // Restart both fingers so two-finger pan recognition
+                    // starts fresh from the current positions.
+                    Uint32 now = SDL_GetTicks();
+                    touches[primary].startLocation = touches[primary].currentLocation;
+                    touches[primary].startTimestamp = now;
+                    touches[secondary].startLocation = touches[secondary].currentLocation;
+                    touches[secondary].startTimestamp = now;
+                } else {
+                    currentGesture.state = kChanged;
+                    currentGesture.x = touches[primary].currentLocation.x;
+                    currentGesture.y = touches[primary].currentLocation.y;
+                    gestureEventsQueue.push(currentGesture);
+                }
+            } else if (currentGesture.numberOfTouches == 1 && activeCount == 1 && endedCount == 1) {
+                // The extra finger lifted while the primary stayed down.
+                int secondary = ended[0];
+                bool quickTap = touches[secondary].currentTimestamp - touches[secondary].startTimestamp <= SECONDARY_TAP_MAXIMUM_DURATION
+                    && abs(touches[secondary].currentLocation.x - touches[secondary].startLocation.x) <= 2 * PAN_MINIMUM_MOVEMENT
+                    && abs(touches[secondary].currentLocation.y - touches[secondary].startLocation.y) <= 2 * PAN_MINIMUM_MOVEMENT;
+
+                // Consume the lifted finger so it does not linger in the
+                // ended bucket for the rest of the sequence.
+                touches[secondary].used = false;
+
+                if (quickTap) {
+                    Gesture tap;
+                    tap.type = kTap;
+                    tap.state = kEnded;
+                    tap.numberOfTouches = 2;
+                    tap.x = touches[active[0]].currentLocation.x;
+                    tap.y = touches[active[0]].currentLocation.y;
+                    gestureEventsQueue.push(tap);
+                }
+
+                currentGesture.state = kChanged;
+                currentGesture.x = touches[active[0]].currentLocation.x;
+                currentGesture.y = touches[active[0]].currentLocation.y;
                 gestureEventsQueue.push(currentGesture);
             } else {
                 currentGesture.state = kEnded;

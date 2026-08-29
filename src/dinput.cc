@@ -15,6 +15,16 @@ static int mouseWindowMappingWindowHeight = 0;
 static int mouseWindowMappingLogicalWidth = 0;
 static int mouseWindowMappingLogicalHeight = 0;
 static bool mouseRelativeMode = false;
+// Whether a physical mouse has produced any SDL event this session. With
+// touch-to-mouse synthesis disabled, SDL's mouse state stays at (0,0) on
+// touch-only devices - feeding that to the absolute path teleports the
+// game cursor to the top-left corner.
+static bool gPhysicalMouseSeen = false;
+
+void mouseDeviceNotePhysicalInput()
+{
+    gPhysicalMouseSeen = true;
+}
 
 static void mouseDeviceMapWindowToLogicalPosition(int* x, int* y);
 
@@ -91,6 +101,13 @@ bool mouseDeviceGetData(MouseData* mouseState)
     // TODO: Move mouse events processing into `GNW95_process_message` and
     // update mouse position manually.
     SDL_PumpEvents();
+
+    // No physical mouse has ever spoken - SDL's mouse state is a stale
+    // (0,0). Report nothing rather than a bogus absolute position.
+    if (!gPhysicalMouseSeen && !mouseDeviceUsesRelativeMode()) {
+        return false;
+    }
+
     Uint32 buttons = mouseDeviceUsesRelativeMode()
         ? SDL_GetRelativeMouseState(&(mouseState->x), &(mouseState->y))
         : SDL_GetMouseState(&(mouseState->x), &(mouseState->y));

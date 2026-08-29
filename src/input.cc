@@ -1030,6 +1030,8 @@ void _GNW95_process_message()
         case SDL_MOUSEBUTTONDOWN:
         case SDL_MOUSEBUTTONUP:
         case SDL_MOUSEWHEEL:
+            // Touch synthesis is disabled, so these only come from real mice.
+            mouseDeviceNotePhysicalInput();
             if (e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) {
                 inputHandleMouseClickHook(e.button.button, e.type == SDL_MOUSEBUTTONDOWN);
             }

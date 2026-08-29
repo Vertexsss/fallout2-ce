@@ -21,6 +21,7 @@ typedef struct KeyboardData {
 bool directInputInit();
 void directInputFree();
 bool mouseDeviceUsesRelativeMode();
+void mouseDeviceNotePhysicalInput();
 bool mouseDeviceInitMode();
 void mouseDeviceRefreshWindowMapping();
 void mouseDeviceSetLogicalPosition(int x, int y);

@@ -10,6 +10,7 @@
 #include "settings.h"
 #include "svga.h"
 #include "text_font.h"
+#include "tile_hires_stencil.h"
 #include "window_manager.h"
 
 namespace fallout {
@@ -173,6 +174,17 @@ void freeScrollNext()
     settings.ui.free_scroll = !settings.ui.free_scroll;
 }
 
+const char* stencilText()
+{
+    return settings.ui.enable_high_resolution_stencil ? "ON" : "OFF";
+}
+
+void stencilNext()
+{
+    settings.ui.enable_high_resolution_stencil = !settings.ui.enable_high_resolution_stencil;
+    tile_hires_stencil_set_enabled(settings.ui.enable_high_resolution_stencil);
+}
+
 const char* toolbarText()
 {
     return settings.ui.quick_toolbar_visible ? "ON" : "OFF";
@@ -205,6 +217,7 @@ constexpr Row kRows[] = {
     { "FPS COUNTER", fpsCounterText, fpsCounterNext },
     { "TOUCH TOOLBAR", toolbarText, toolbarNext },
     { "FREE CAMERA", freeScrollText, freeScrollNext },
+    { "MAP STENCIL", stencilText, stencilNext },
     { "PLAYER ARROW", dudePointerText, dudePointerNext },
     { "UI SCALE", uiScaleText, uiScaleNext },
 };

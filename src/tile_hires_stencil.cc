@@ -26,6 +26,18 @@ namespace fallout {
 /** This holds hex tiles which can be center tile */
 static bool visited_tiles[ELEVATION_COUNT][HEX_GRID_SIZE];
 
+// Bounding box (in the stencil's global pixel space) of everything the
+// original-resolution view could ever show on this elevation; scrolling is
+// not allowed to move the window (much) beyond it.
+struct StencilScreenLimits {
+    int minX;
+    int maxX;
+    int minY;
+    int maxY;
+    bool initialized;
+};
+static StencilScreenLimits screen_xy_limits[ELEVATION_COUNT];
+
 static constexpr int pixels_per_horizontal_move = 32;
 static constexpr int pixels_per_vertical_move = 24;
 
@@ -70,11 +82,13 @@ static bool gIsTileHiresStencilEnabled = false;
 static void clean_cache()
 {
     memset(visited_tiles, 0, sizeof(visited_tiles));
+    memset(screen_xy_limits, 0, sizeof(screen_xy_limits));
     memset(visible_squares, 0, sizeof(visible_squares));
 }
 static void clean_cache_for_elevation(int elevation)
 {
     memset(visited_tiles[elevation], 0, sizeof(visited_tiles[elevation]));
+    memset(&screen_xy_limits[elevation], 0, sizeof(screen_xy_limits[elevation]));
     memset(visible_squares[elevation], 0, sizeof(visible_squares[elevation]));
 }
 
@@ -206,6 +220,96 @@ static void mark_screen_tiles_around_as_visible(int center_tile, const Point& sc
     }
 }
 
+static void update_screen_xy_limits(int tileScreenX, int tileScreenY, const Point& screen_diff, int elevation)
+{
+    auto& limits = screen_xy_limits[elevation];
+    auto candidateMinX = tileScreenX - screen_view_width / 2 - screen_diff.x;
+    auto candidateMaxX = tileScreenX + screen_view_width / 2 - screen_diff.x;
+    auto candidateMinY = tileScreenY - screen_view_height / 2 - screen_diff.y;
+    auto candidateMaxY = tileScreenY + screen_view_height / 2 - screen_diff.y;
+
+    if (!limits.initialized) {
+        limits.minX = candidateMinX;
+        limits.maxX = candidateMaxX;
+        limits.minY = candidateMinY;
+        limits.maxY = candidateMaxY;
+        limits.initialized = true;
+        return;
+    }
+
+    if (candidateMinX < limits.minX) {
+        limits.minX = candidateMinX;
+    }
+    if (candidateMaxX > limits.maxX) {
+        limits.maxX = candidateMaxX;
+    }
+    if (candidateMinY < limits.minY) {
+        limits.minY = candidateMinY;
+    }
+    if (candidateMaxY > limits.maxY) {
+        limits.maxY = candidateMaxY;
+    }
+}
+
+struct TileScrollNeighbors {
+    int left;
+    int right;
+    int up;
+    int down;
+};
+
+// The center tiles reachable by one scroll step in each direction.
+//
+// tile size is 32 x 18
+//
+//  / \      ^
+// |   |     | 18
+//  \ /      v
+//
+// <-32->
+//
+// Scrolling left-right changes x by 32
+// But scrolling top-bottom changes y by 24
+//
+//
+//        / \
+//       |   |         <----- tiles on vertical change, 24 px
+//      / \ / \            |
+//     |   |   |   <------ | ----- tiles on horizontal change, 32 px
+//      \ / \ /            |
+//       |   |         <--/
+//        \ /
+//
+static TileScrollNeighbors get_tile_scroll_neighbors(int tileScreenX, int tileScreenY)
+{
+    constexpr int tile_center_offset_x = 16;
+    constexpr int tile_center_offset_y = 8;
+
+    TileScrollNeighbors r;
+
+    r.left = tileFromScreenXY(
+        tileScreenX - pixels_per_horizontal_move + tile_center_offset_x,
+        tileScreenY + tile_center_offset_y,
+        true);
+
+    r.right = tileFromScreenXY(
+        tileScreenX + pixels_per_horizontal_move + tile_center_offset_x,
+        tileScreenY + tile_center_offset_y,
+        true);
+
+    r.up = tileFromScreenXY(
+        tileScreenX + tile_center_offset_x,
+        tileScreenY - pixels_per_vertical_move + tile_center_offset_y,
+        true);
+
+    r.down = tileFromScreenXY(
+        tileScreenX + tile_center_offset_x,
+        tileScreenY + pixels_per_vertical_move + tile_center_offset_y,
+        true);
+
+    return r;
+}
+
 void tile_hires_stencil_on_center_tile_or_elevation_change()
 {
     if (!gIsTileHiresStencilEnabled) {
@@ -265,50 +369,14 @@ void tile_hires_stencil_on_center_tile_or_elevation_change()
         int tileScreenY;
         tileToScreenXY(tileInfo.tile, &tileScreenX, &tileScreenY);
 
-        // tile size is 32 x 18
-        //
-        //  / \      ^
-        // |   |     | 18
-        //  \ /      v
-        //
-        // <-32->
-        //
-        // Scrolling left-right changes x by 32
-        // But scrolling top-bottom changes y by 24
-        //
-        //
-        //        / \
-        //       |   |         <----- tiles on vertical change, 24 px
-        //      / \ / \            |
-        //     |   |   |   <------ | ----- tiles on horizontal change, 32 px
-        //      \ / \ /            |
-        //       |   |         <--/
-        //        \ /
-        //
+        update_screen_xy_limits(tileScreenX, tileScreenY, screen_diff, gElevation);
 
-        constexpr int tile_center_offset_x = 16;
-        constexpr int tile_center_offset_y = 8;
+        auto neighbors = get_tile_scroll_neighbors(tileScreenX, tileScreenY);
 
-        tiles_to_visit.push_back({ tileFromScreenXY(
-                                       tileScreenX - pixels_per_horizontal_move + tile_center_offset_x,
-                                       tileScreenY + tile_center_offset_y,
-                                       true),
-            MarkOnlyPart::LEFT });
-        tiles_to_visit.push_back({ tileFromScreenXY(
-                                       tileScreenX + pixels_per_horizontal_move + tile_center_offset_x,
-                                       tileScreenY + tile_center_offset_y,
-                                       true),
-            MarkOnlyPart::RIGHT });
-        tiles_to_visit.push_back({ tileFromScreenXY(
-                                       tileScreenX + tile_center_offset_x,
-                                       tileScreenY - pixels_per_vertical_move + tile_center_offset_y,
-                                       true),
-            MarkOnlyPart::UP });
-        tiles_to_visit.push_back({ tileFromScreenXY(
-                                       tileScreenX + tile_center_offset_x,
-                                       tileScreenY + pixels_per_vertical_move + tile_center_offset_y,
-                                       true),
-            MarkOnlyPart::DOWN });
+        tiles_to_visit.push_back({ neighbors.left, MarkOnlyPart::LEFT });
+        tiles_to_visit.push_back({ neighbors.right, MarkOnlyPart::RIGHT });
+        tiles_to_visit.push_back({ neighbors.up, MarkOnlyPart::UP });
+        tiles_to_visit.push_back({ neighbors.down, MarkOnlyPart::DOWN });
     }
 
     // debugPrint("tile_hires_stencil_on_center_tile_or_elevation_change visited_tiles_count=%i\n", visited_tiles_count);
@@ -394,6 +462,180 @@ void tile_hires_stencil_draw(Rect* rect, unsigned char* buffer, int windowWidth,
     }
 }
 
+bool tile_hires_stencil_allows_scrolling_to_tile(int newCenterTile, int currentCenterTile, int elevation, int windowWidth, int windowHeight)
+{
+    if (!gIsTileHiresStencilEnabled) {
+        return true;
+    }
+
+    if (!gTileBorderInitialized) {
+        return true;
+    }
+
+    auto& limits = screen_xy_limits[elevation];
+    if (!limits.initialized) {
+        return true;
+    }
+
+    int currentTileScreenX;
+    int currentTileScreenY;
+    tileToScreenXY(currentCenterTile, &currentTileScreenX, &currentTileScreenY);
+
+    int newTileScreenX;
+    int newTileScreenY;
+    tileToScreenXY(newCenterTile, &newTileScreenX, &newTileScreenY);
+
+    auto xDiff = newTileScreenX - currentTileScreenX;
+    auto yDiff = newTileScreenY - currentTileScreenY;
+
+    auto screen_diff = get_screen_diff();
+
+    auto newScreenMinX = newTileScreenX - windowWidth / 2 - screen_diff.x;
+    auto newScreenMaxX = newTileScreenX + windowWidth / 2 - screen_diff.x;
+    auto newScreenMinY = newTileScreenY - windowHeight / 2 - screen_diff.y;
+    auto newScreenMaxY = newTileScreenY + windowHeight / 2 - screen_diff.y;
+
+    if (xDiff < 0) { // Moving left
+        if (newScreenMinX >= limits.minX) {
+            // Scrolling left when there is still something to show is always allowed
+            //    [------------------------]   <- possible visible area border (limits.maxX and limits.minX)
+            //      (         x         )   <- hi-res screen with center tile (newScreenMinX, newScreenMaxX)
+        } else if (newScreenMaxX <= limits.maxX) {
+            // Disallow if map is bigger than screen
+            //    [------------------------]   <- possible visible area border (limits.maxX and limits.minX)
+            //   (         x         )   <- this clearly disallow
+            return false;
+        } else {
+            // Now we have two cases: when moving left will make map to be more in the center or not
+            //         [-----------]   <- possible visible area border (limits.maxX and limits.minX)
+            //        (         x         )   <- allow this, it will move map to the center
+            //  (         x         )   <- disallow this, it will move map from the center
+            auto leftDiff = limits.minX - newScreenMinX;
+            auto rightDiff = newScreenMaxX - limits.maxX;
+            if (leftDiff > rightDiff) {
+                return false;
+            }
+        }
+    }
+
+    if (xDiff > 0) { // Moving right
+        if (newScreenMaxX <= limits.maxX) {
+            // Allow
+        } else if (newScreenMinX > limits.minX) {
+            return false;
+        } else {
+            auto leftDiff = limits.minX - newScreenMinX;
+            auto rightDiff = newScreenMaxX - limits.maxX;
+            if (leftDiff < rightDiff) {
+                return false;
+            }
+        }
+    }
+
+    if (yDiff < 0) { // Moving up
+        if (newScreenMinY >= limits.minY) {
+            // Scrolling up when there is still something to show is always allowed
+        } else if (newScreenMaxY <= limits.maxY) {
+            // Disallow if map is taller than screen
+            return false;
+        } else {
+            // Allow only if moving up makes the visible area more centered vertically
+            auto topDiff = limits.minY - newScreenMinY;
+            auto bottomDiff = newScreenMaxY - limits.maxY;
+            if (topDiff > bottomDiff) {
+                return false;
+            }
+        }
+    }
+
+    if (yDiff > 0) { // Moving down
+        if (newScreenMaxY <= limits.maxY) {
+            // Allow
+        } else if (newScreenMinY > limits.minY) {
+            return false;
+        } else {
+            auto topDiff = limits.minY - newScreenMinY;
+            auto bottomDiff = newScreenMaxY - limits.maxY;
+            if (topDiff < bottomDiff) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+int tile_hires_stencil_get_tweaked_center_tile(int initialCenterTile, int elevation, int windowWidth, int windowHeight)
+{
+    if (!gIsTileHiresStencilEnabled || !gTileBorderInitialized) {
+        return initialCenterTile;
+    }
+
+    auto& limits = screen_xy_limits[elevation];
+    if (!limits.initialized) {
+        return initialCenterTile;
+    }
+
+    auto candidateTile = initialCenterTile;
+
+    int loopBreaker = 1000; // Just in case, to avoid infinite loop
+
+    for (; loopBreaker > 0; loopBreaker--) {
+        int candidateTileScreenX;
+        int candidateTileScreenY;
+        tileToScreenXY(candidateTile, &candidateTileScreenX, &candidateTileScreenY);
+
+        auto screen_diff = get_screen_diff();
+        auto candidateScreenMinX = candidateTileScreenX - windowWidth / 2 - screen_diff.x;
+        auto candidateScreenMaxX = candidateTileScreenX + windowWidth / 2 - screen_diff.x;
+        auto candidateScreenMinY = candidateTileScreenY - windowHeight / 2 - screen_diff.y;
+        auto candidateScreenMaxY = candidateTileScreenY + windowHeight / 2 - screen_diff.y;
+
+        auto leftIsOutOfLimits = candidateScreenMinX < limits.minX;
+        auto rightIsOutOfLimits = candidateScreenMaxX > limits.maxX;
+        auto upIsOutOfLimits = candidateScreenMinY < limits.minY;
+        auto downIsOutOfLimits = candidateScreenMaxY > limits.maxY;
+
+        auto neighbors = get_tile_scroll_neighbors(candidateTileScreenX, candidateTileScreenY);
+
+        auto canScrollLeft = tileIsValid(neighbors.left)
+            && tile_hires_stencil_allows_scrolling_to_tile(
+                neighbors.left, candidateTile, elevation, windowWidth, windowHeight)
+            && _obj_scroll_blocking_at(neighbors.left, elevation) != 0;
+
+        auto canScrollRight = tileIsValid(neighbors.right)
+            && tile_hires_stencil_allows_scrolling_to_tile(
+                neighbors.right, candidateTile, elevation, windowWidth, windowHeight)
+            && _obj_scroll_blocking_at(neighbors.right, elevation) != 0;
+
+        auto canScrollUp = tileIsValid(neighbors.up)
+            && tile_hires_stencil_allows_scrolling_to_tile(
+                neighbors.up, candidateTile, elevation, windowWidth, windowHeight)
+            && _obj_scroll_blocking_at(neighbors.up, elevation) != 0;
+
+        auto canScrollDown = tileIsValid(neighbors.down)
+            && tile_hires_stencil_allows_scrolling_to_tile(
+                neighbors.down, candidateTile, elevation, windowWidth, windowHeight)
+            && _obj_scroll_blocking_at(neighbors.down, elevation) != 0;
+
+        if (leftIsOutOfLimits && canScrollRight) {
+            candidateTile = neighbors.right;
+        } else if (rightIsOutOfLimits && canScrollLeft) {
+            candidateTile = neighbors.left;
+        } else if (upIsOutOfLimits && canScrollDown) {
+            candidateTile = neighbors.down;
+        } else if (downIsOutOfLimits && canScrollUp) {
+            candidateTile = neighbors.up;
+        } else {
+            return candidateTile;
+        }
+    }
+
+    debugPrint("Warning! tile_hires_stencil_get_tweaked_center_tile: loop breaker reached, something went wrong" "\n");
+
+    return -1;
+}
+
 void tile_hires_stencil_init()
 {
     gIsTileHiresStencilEnabled = !settings.system.executableIsMapper() && settings.ui.enable_high_resolution_stencil;
@@ -423,6 +665,23 @@ void tile_hires_stencil_on_map_load()
     tile_hires_stencil_on_center_tile_or_elevation_change();
     tileWindowRefresh();
     debugPrint("tile_hires_stencil_on_map_load\n");
+}
+
+void tile_hires_stencil_set_enabled(bool enabled)
+{
+    bool effective = enabled
+        && !settings.system.executableIsMapper()
+        && !settings.ui.ignore_map_edges;
+    if (effective == gIsTileHiresStencilEnabled) {
+        return;
+    }
+
+    gIsTileHiresStencilEnabled = effective;
+    clean_cache();
+    if (effective) {
+        tile_hires_stencil_on_center_tile_or_elevation_change();
+    }
+    tileWindowRefresh();
 }
 
 } // namespace fallout

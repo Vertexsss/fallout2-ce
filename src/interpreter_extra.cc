@@ -3190,7 +3190,7 @@ static void opFloatMessage(Program* program)
         color = COLOR_RED;
         backgroundColor = COLOR_BLACK;
         font = 103;
-        tileSetCenter(gDude->tile, TILE_SET_CENTER_REFRESH_WINDOW);
+        tileSetCenter(gDude->tile, TILE_SET_CENTER_REFRESH_WINDOW | TILE_SET_CENTER_FLAG_ALLOW_HIRES_TWEAK);
         break;
     case FLOATING_MESSAGE_TYPE_NORMAL:
     case FLOATING_MESSAGE_TYPE_YELLOW:

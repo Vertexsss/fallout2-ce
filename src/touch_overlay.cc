@@ -425,7 +425,7 @@ void touchOverlayToggleHighlight()
 void touchOverlayCenterOnDude()
 {
     if (gDude != nullptr && gDude->tile != -1) {
-        tileSetCenter(gDude->tile, TILE_SET_CENTER_REFRESH_WINDOW);
+        tileSetCenter(gDude->tile, TILE_SET_CENTER_REFRESH_WINDOW | TILE_SET_CENTER_FLAG_IGNORE_SCROLL_RESTRICTIONS | TILE_SET_CENTER_FLAG_ALLOW_HIRES_TWEAK);
     }
 }
 

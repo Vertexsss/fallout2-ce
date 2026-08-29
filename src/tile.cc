@@ -631,6 +631,12 @@ int tileSetCenter(int tile, int flags)
                 return -1;
             }
         }
+
+        // Stencil scroll limit (EDG-less maps): no scrolling into areas that
+        // are pure void on resolutions larger than the original 640x480.
+        if (!tile_hires_stencil_allows_scrolling_to_tile(tile, gCenterTile, gElevation, gTileWindowWidth, gTileWindowHeight)) {
+            return -1;
+        }
     }
 
     int tile_x = gHexGridWidth - 1 - tile % gHexGridWidth;
@@ -673,6 +679,15 @@ int tileSetCenter(int tile, int flags)
     gCenterTile = tile;
 
     tile_hires_stencil_on_center_tile_or_elevation_change();
+
+    if ((flags & TILE_SET_CENTER_FLAG_ALLOW_HIRES_TWEAK) != 0) {
+        // Forced centering near a map edge would show the black overlay;
+        // auto-scroll toward the map until it is out of view.
+        int tweakedCenterTile = tile_hires_stencil_get_tweaked_center_tile(gCenterTile, gElevation, gTileWindowWidth, gTileWindowHeight);
+        if (tileIsValid(tweakedCenterTile) && tweakedCenterTile != gCenterTile) {
+            return tileSetCenter(tweakedCenterTile, flags & ~TILE_SET_CENTER_FLAG_ALLOW_HIRES_TWEAK);
+        }
+    }
 
     if ((flags & TILE_SET_CENTER_REFRESH_WINDOW) != 0) {
         // NOTE: Uninline.

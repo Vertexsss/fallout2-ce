@@ -63,6 +63,10 @@ struct UISettings {
     // screen away from the player. Map-edge and scroll-blocker checks stay.
     bool free_scroll = true;
 
+    // Edge-of-screen arrow pointing toward the player when the view has been
+    // scrolled away; tapping it re-centers on the player.
+    bool dude_pointer = true;
+
     // Should the game window stretch all the way to the bottom or sit at the top of the interface bar (default).
     bool iface_bar_mode = false;
 

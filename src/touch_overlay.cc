@@ -1,5 +1,6 @@
 #include "touch_overlay.h"
 
+#include <math.h>
 #include <string.h>
 
 #include <SDL.h>
@@ -10,6 +11,7 @@
 #include "kb.h"
 #include "map.h"
 #include "object.h"
+#include "settings.h"
 #include "svga.h"
 #include "tile.h"
 #include "text_font.h"
@@ -35,6 +37,15 @@ OverlayButton gCfgButton;
 OverlayButton gHltButton;
 bool gShown = false;
 bool gHighlightActive = false;
+
+// Edge-of-screen arrow pointing toward the off-screen player.
+constexpr int kPointerSize = 30;
+constexpr int kPointerMargin = 44;
+int gPointerWindow = -1;
+int gPointerX = 0;
+int gPointerY = 0;
+int gPointerDir = -1;
+bool gPointerShown = false;
 
 void fillRect(unsigned char* buffer, int pitch, int x, int y, int w, int h, Color color)
 {
@@ -98,6 +109,118 @@ bool pointInButton(const OverlayButton& button, int x, int y)
     return button.window != -1
         && x >= button.x && x < button.x + kButtonWidth
         && y >= button.y && y < button.y + kButtonHeight;
+}
+
+void paintPointer(int dir)
+{
+    if (gPointerWindow == -1) {
+        return;
+    }
+
+    unsigned char* buffer = windowGetBuffer(gPointerWindow);
+    if (buffer == nullptr) {
+        return;
+    }
+
+    memset(buffer, 0, static_cast<size_t>(kPointerSize) * kPointerSize);
+
+    // Filled triangle pointing along one of 8 directions.
+    static const int kDirX[8] = { 1, 1, 0, -1, -1, -1, 0, 1 };
+    static const int kDirY[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
+
+    double len = (kDirX[dir] != 0 && kDirY[dir] != 0) ? 0.7071 : 1.0;
+    double dx = kDirX[dir] * len;
+    double dy = kDirY[dir] * len;
+    double cx = kPointerSize / 2.0;
+    double cy = kPointerSize / 2.0;
+
+    double tipX = cx + dx * 12.0;
+    double tipY = cy + dy * 12.0;
+    double baseX = cx - dx * 6.0;
+    double baseY = cy - dy * 6.0;
+    double perpX = -dy;
+    double perpY = dx;
+    double aX = baseX + perpX * 8.0;
+    double aY = baseY + perpY * 8.0;
+    double bX = baseX - perpX * 8.0;
+    double bY = baseY - perpY * 8.0;
+
+    const Color fill = intensityColorTable[COLOR_LIGHT_YELLOW][48];
+
+    for (int y = 0; y < kPointerSize; y++) {
+        for (int x = 0; x < kPointerSize; x++) {
+            double d1 = (x - tipX) * (aY - tipY) - (y - tipY) * (aX - tipX);
+            double d2 = (x - aX) * (bY - aY) - (y - aY) * (bX - aX);
+            double d3 = (x - bX) * (tipY - bY) - (y - bY) * (tipX - bX);
+            bool neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+            bool pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+            if (!(neg && pos)) {
+                buffer[y * kPointerSize + x] = fill;
+            }
+        }
+    }
+
+    windowRefresh(gPointerWindow);
+}
+
+void pointerHide()
+{
+    if (gPointerShown && gPointerWindow != -1) {
+        windowHide(gPointerWindow);
+        gPointerShown = false;
+    }
+}
+
+// Runs every frame as a ticker: shows the arrow at the screen edge in the
+// player's direction while the player is scrolled out of view.
+void pointerTick()
+{
+    if (!gShown || gPointerWindow == -1 || !settings.ui.dude_pointer
+        || gDude == nullptr || gDude->tile == -1) {
+        pointerHide();
+        return;
+    }
+
+    int dudeX;
+    int dudeY;
+    tileToScreenXY(gDude->tile, &dudeX, &dudeY);
+    dudeX += 16;
+    dudeY += 8;
+
+    int viewW = screenGetWidth();
+    int viewH = screenGetVisibleHeight();
+
+    if (dudeX >= 0 && dudeX < viewW && dudeY >= 0 && dudeY < viewH) {
+        pointerHide();
+        return;
+    }
+
+    int px = dudeX;
+    int py = dudeY;
+    if (px < kPointerMargin) px = kPointerMargin;
+    if (px > viewW - kPointerMargin - kPointerSize) px = viewW - kPointerMargin - kPointerSize;
+    if (py < kPointerMargin) py = kPointerMargin;
+    if (py > viewH - kPointerMargin - kPointerSize) py = viewH - kPointerMargin - kPointerSize;
+
+    double angle = atan2(static_cast<double>(dudeY - (viewH / 2)), static_cast<double>(dudeX - (viewW / 2)));
+    int dir = static_cast<int>(floor(angle / (3.14159265 / 4.0) + 0.5)) & 7;
+
+    if (!gPointerShown) {
+        windowShow(gPointerWindow);
+        gPointerShown = true;
+        gPointerDir = -1;
+    }
+
+    if (px != gPointerX || py != gPointerY) {
+        gPointerX = px;
+        gPointerY = py;
+        windowSetPosition(gPointerWindow, px, py);
+    }
+
+    if (dir != gPointerDir) {
+        gPointerDir = dir;
+        paintPointer(dir);
+    }
 }
 
 // Outlines every item lying on the ground on the current elevation using
@@ -165,10 +288,27 @@ void touchOverlayInit()
     // Bottom-left, above the interface bar.
     createButton(gHltButton, kMargin, screenH - INTERFACE_BAR_HEIGHT - kButtonHeight - 10,
         "HLT", kTouchOverlayHighlightKeyCode);
+
+    gPointerWindow = windowCreate(0, 0, kPointerSize, kPointerSize, COLOR_BLACK,
+        WINDOW_HIDDEN | WINDOW_TRANSPARENT | WINDOW_MOVE_ON_TOP);
+    if (gPointerWindow != -1) {
+        buttonCreate(gPointerWindow, 0, 0, kPointerSize, kPointerSize, -1, -1, -1, kTouchOverlayCenterKeyCode);
+    }
+    gPointerShown = false;
+
+    tickersAdd(pointerTick);
 }
 
 void touchOverlayFree()
 {
+    tickersRemove(pointerTick);
+
+    if (gPointerWindow != -1) {
+        windowDestroy(gPointerWindow);
+        gPointerWindow = -1;
+    }
+    gPointerShown = false;
+
     if (gHighlightActive) {
         pushShiftEvent(false);
         gHighlightActive = false;
@@ -215,6 +355,7 @@ void touchOverlayHide()
     if (gHltButton.window != -1) {
         windowHide(gHltButton.window);
     }
+    pointerHide();
     gShown = false;
 }
 
@@ -223,7 +364,12 @@ bool touchOverlayContainsPoint(int x, int y)
     if (!gShown) {
         return false;
     }
-    return pointInButton(gCfgButton, x, y) || pointInButton(gHltButton, x, y);
+    if (pointInButton(gCfgButton, x, y) || pointInButton(gHltButton, x, y)) {
+        return true;
+    }
+    return gPointerShown
+        && x >= gPointerX && x < gPointerX + kPointerSize
+        && y >= gPointerY && y < gPointerY + kPointerSize;
 }
 
 bool touchOverlayHandleTap(int x, int y)
@@ -244,6 +390,13 @@ bool touchOverlayHandleTap(int x, int y)
         return true;
     }
 
+    if (gPointerShown
+        && x >= gPointerX && x < gPointerX + kPointerSize
+        && y >= gPointerY && y < gPointerY + kPointerSize) {
+        touchOverlayCenterOnDude();
+        return true;
+    }
+
     return false;
 }
 
@@ -253,6 +406,13 @@ void touchOverlayToggleHighlight()
     pushShiftEvent(gHighlightActive);
     applyItemOutlines(gHighlightActive);
     paintButton(gHltButton, gHighlightActive);
+}
+
+void touchOverlayCenterOnDude()
+{
+    if (gDude != nullptr && gDude->tile != -1) {
+        tileSetCenter(gDude->tile, TILE_SET_CENTER_REFRESH_WINDOW);
+    }
 }
 
 void touchOverlayReleaseHighlight()

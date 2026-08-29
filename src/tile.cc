@@ -561,6 +561,12 @@ void tileSetViewPixelBias(int biasX, int biasY)
     _square_offy -= dy;
 }
 
+void tileGetViewPixelBias(int* biasX, int* biasY)
+{
+    *biasX = gTileViewPixelBiasX;
+    *biasY = gTileViewPixelBiasY;
+}
+
 void tileWindowRefresh()
 {
     if (gTileEnabled) {

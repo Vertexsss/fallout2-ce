@@ -152,6 +152,16 @@ void uiScaleNext()
     }
 }
 
+const char* dudePointerText()
+{
+    return settings.ui.dude_pointer ? "ON" : "OFF";
+}
+
+void dudePointerNext()
+{
+    settings.ui.dude_pointer = !settings.ui.dude_pointer;
+}
+
 const char* freeScrollText()
 {
     return settings.ui.free_scroll ? "ON" : "OFF";
@@ -195,6 +205,7 @@ constexpr Row kRows[] = {
     { "FPS COUNTER", fpsCounterText, fpsCounterNext },
     { "TOUCH TOOLBAR", toolbarText, toolbarNext },
     { "FREE CAMERA", freeScrollText, freeScrollNext },
+    { "PLAYER ARROW", dudePointerText, dudePointerNext },
     { "UI SCALE", uiScaleText, uiScaleNext },
 };
 constexpr int kRowCount = static_cast<int>(sizeof(kRows) / sizeof(kRows[0]));

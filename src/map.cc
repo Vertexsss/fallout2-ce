@@ -629,6 +629,22 @@ static int mapFloorDiv(int value, int step)
     return q;
 }
 
+static bool mapTryStepCenter(int stepsX, int stepsY)
+{
+    int centerScreenX;
+    int centerScreenY;
+    tileToScreenXY(gCenterTile, &centerScreenX, &centerScreenY);
+    centerScreenX += stepsX * 32 + 16;
+    centerScreenY += stepsY * 24 + 8;
+
+    int newCenterTile = tileFromScreenXY(centerScreenX, centerScreenY);
+    if (newCenterTile == -1) {
+        return false;
+    }
+
+    return tileSetCenter(newCenterTile, 0) != -1;
+}
+
 int mapScrollPixels(int dxPixels, int dyPixels)
 {
     static int biasX = 0;
@@ -642,40 +658,43 @@ int mapScrollPixels(int dxPixels, int dyPixels)
     int residualX = biasX - stepsX * 32;
     int residualY = biasY - stepsY * 24;
 
+    // Bias as currently shown on screen - the fallback for a blocked axis so
+    // the view freezes exactly where it is (no desync, no tile-sized jumps
+    // when moving away from a boundary).
+    int shownX;
+    int shownY;
+    tileGetViewPixelBias(&shownX, &shownY);
+
+    bool movedX = stepsX == 0;
+    bool movedY = stepsY == 0;
+
     if (stepsX != 0 || stepsY != 0) {
         gameMouseObjectsHide();
 
-        int centerScreenX;
-        int centerScreenY;
-        tileToScreenXY(gCenterTile, &centerScreenX, &centerScreenY);
-        centerScreenX += stepsX * 32 + 16;
-        centerScreenY += stepsY * 24 + 8;
-
-        int newCenterTile = tileFromScreenXY(centerScreenX, centerScreenY);
-        bool blocked = newCenterTile == -1;
-
-        if (!blocked) {
-            tileSetViewPixelBias(residualX, residualY);
-            if (tileSetCenter(newCenterTile, 0) == -1) {
-                blocked = true;
+        if (mapTryStepCenter(stepsX, stepsY)) {
+            movedX = true;
+            movedY = true;
+        } else {
+            // Slide along the boundary: try each axis separately.
+            if (stepsX != 0 && mapTryStepCenter(stepsX, 0)) {
+                movedX = true;
+            }
+            if (stepsY != 0 && mapTryStepCenter(0, stepsY)) {
+                movedY = true;
             }
         }
-
-        if (blocked) {
-            // Stay at the boundary; drop the crossing but keep the residual.
-            biasX = residualX;
-            biasY = residualY;
-            return -1;
-        }
-    } else {
-        tileSetViewPixelBias(residualX, residualY);
     }
 
-    biasX = residualX;
-    biasY = residualY;
+    int finalBiasX = movedX ? residualX : shownX;
+    int finalBiasY = movedY ? residualY : shownY;
+    tileSetViewPixelBias(finalBiasX, finalBiasY);
+
+    biasX = finalBiasX;
+    biasY = finalBiasY;
 
     tileWindowRefresh();
-    return 0;
+
+    return (movedX || movedY) ? 0 : -1;
 }
 
 int mapScroll(int dx, int dy, bool fastPaced)

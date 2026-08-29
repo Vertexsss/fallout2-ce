@@ -14,6 +14,8 @@ namespace fallout {
 
 // Key code posted by the HLT button through the input queue on desktop.
 constexpr int kTouchOverlayHighlightKeyCode = 2001;
+// Key code posted by the player-pointer arrow: re-center on the player.
+constexpr int kTouchOverlayCenterKeyCode = 2002;
 
 void touchOverlayInit();
 void touchOverlayFree();
@@ -28,6 +30,9 @@ bool touchOverlayHandleTap(int x, int y);
 
 // Toggles the simulated-Shift item highlighting and repaints the button.
 void touchOverlayToggleHighlight();
+
+// Centers the view on the player (the pointer arrow's action).
+void touchOverlayCenterOnDude();
 
 // Releases the highlight if it is on. Called before a world tap is simulated:
 // Shift also modifies movement (walk instead of run), so a held simulated

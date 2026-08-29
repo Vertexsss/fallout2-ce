@@ -207,6 +207,7 @@ inline void windowDrawRect(int win, int left, int top, int right, int bottom, Co
     windowDrawRect(win, left, top, right, bottom, color | DRAW_TEXT_FLAG_NONE);
 }
 
+void windowSetPosition(int win, int x, int y);
 void windowFill(int win, int x, int y, int width, int height, ColorWithFlags color);
 inline void windowFill(int win, int x, int y, int width, int height, Color color)
 {

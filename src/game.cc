@@ -641,6 +641,9 @@ int gameHandleKey(int eventCode, bool isInCombatMode)
     case kTouchOverlayHighlightKeyCode:
         touchOverlayToggleHighlight();
         break;
+    case kTouchOverlayCenterKeyCode:
+        touchOverlayCenterOnDude();
+        break;
     case KEY_TAB:
         if (interfaceBarEnabled()
             && gPressedPhysicalKeys[SDL_SCANCODE_LALT] == 0

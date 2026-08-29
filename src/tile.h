@@ -43,6 +43,7 @@ void tileWindowRefresh();
 // Applied on top of the tile-aligned center; reset by forced re-centering
 // (map load, teleport). Positive values shift the view right/down.
 void tileSetViewPixelBias(int biasX, int biasY);
+void tileGetViewPixelBias(int* biasX, int* biasY);
 int tileSetCenter(int tile, int flags);
 void tile_toggle_roof(bool refresh);
 int tileRoofIsVisible();

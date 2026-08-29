@@ -29,6 +29,11 @@ namespace fallout {
 static void windowFree(int win);
 static void _win_buffering(bool bufferWindows);
 static void _win_move(int win_index, int x, int y);
+
+void windowSetPosition(int win, int x, int y)
+{
+    _win_move(win, x, y);
+}
 static void _win_clip(Window* window, RectListNode** rect, unsigned char* dest);
 static void win_drag(int win);
 static void _refresh_all(Rect* rect, unsigned char* dest);

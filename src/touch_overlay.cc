@@ -10,6 +10,7 @@
 #include "interface.h"
 #include "kb.h"
 #include "map.h"
+#include "map_defs.h"
 #include "object.h"
 #include "settings.h"
 #include "svga.h"
@@ -227,10 +228,10 @@ void pointerTick()
 // the engine's native OUTLINE_TYPE_ITEM (the same machinery combat uses for
 // targets). The simulated Shift alone only works when a mod like FO2Tweaks
 // provides highlighting - a vanilla install has nothing listening to it.
-void applyItemOutlines(bool enable)
+void applyItemOutlinesOnElevation(bool enable, int elevation)
 {
     Object** objects = nullptr;
-    int count = objectListCreate(-1, gElevation, OBJ_TYPE_ITEM, &objects);
+    int count = objectListCreate(-1, elevation, OBJ_TYPE_ITEM, &objects);
 
     for (int i = 0; i < count; i++) {
         Object* object = objects[i];
@@ -256,6 +257,19 @@ void applyItemOutlines(bool enable)
 
     if (objects != nullptr) {
         objectListFree(objects);
+    }
+}
+
+void applyItemOutlines(bool enable)
+{
+    if (enable) {
+        applyItemOutlinesOnElevation(true, gElevation);
+    } else {
+        // Clear everywhere: the player may have changed elevation while the
+        // highlight was on, and outlines must not linger on other levels.
+        for (int elevation = 0; elevation < ELEVATION_COUNT; elevation++) {
+            applyItemOutlinesOnElevation(false, elevation);
+        }
     }
 
     tileWindowRefresh();

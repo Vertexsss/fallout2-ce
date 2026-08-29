@@ -53,6 +53,11 @@ FpsLimiter sharedFpsLimiter;
 static bool gRenderDirty = false;
 static SDL_Rect gRenderDirtyRect;
 
+// A palette write happened; the full re-conversion of the indexed surface is
+// deferred to the next present, so several palette ticks between presents
+// cost one blit instead of several.
+static bool gPaletteBlitPending = false;
+
 // 0x4CAD08 init_mode_320_200
 int _init_mode_320_200()
 {
@@ -261,8 +266,13 @@ void directDrawSetPaletteInRange(unsigned char* palette, int start, int count)
         }
 
         SDL_SetPaletteColors(gSdlSurface->format->palette, colors, start, count);
-        SDL_BlitSurface(gSdlSurface, nullptr, gSdlTextureSurface, nullptr);
-        renderMarkDirty(nullptr);
+
+        // Ambient palette animation (color cycling) - the "very fast" group
+        // ticks 30 times per second on every map. Defer the re-conversion to
+        // the next present and do not count it as user activity, so the idle
+        // FPS limiter still engages on otherwise static scenes.
+        gPaletteBlitPending = true;
+        renderMarkDirtyAmbient(nullptr);
     }
 }
 
@@ -280,7 +290,10 @@ void directDrawSetPalette(unsigned char* palette)
         }
 
         SDL_SetPaletteColors(gSdlSurface->format->palette, colors, 0, 256);
-        SDL_BlitSurface(gSdlSurface, nullptr, gSdlTextureSurface, nullptr);
+
+        // Full palette sets come from fades - keep them counted as activity
+        // so fades run at full frame rate.
+        gPaletteBlitPending = true;
         renderMarkDirty(nullptr);
     }
 }
@@ -408,6 +421,7 @@ static void destroyRenderer()
     // The recorded dirty region is only meaningful for the surface it was
     // recorded against - forget it before that surface goes away.
     gRenderDirty = false;
+    gPaletteBlitPending = false;
 
     if (gSdlTextureSurface != nullptr) {
         SDL_FreeSurface(gSdlTextureSurface);
@@ -431,8 +445,9 @@ void handleWindowSizeChanged()
     destroyRenderer();
     createRenderer(screenGetWidth(), screenGetHeight());
 
-    // The new surface starts out blank - make sure the next present uploads
-    // it in full instead of reusing a stale region from the old surface.
+    // The new surface starts out blank - re-convert the game surface into it
+    // on the next present and upload it in full.
+    gPaletteBlitPending = true;
     renderMarkDirty(nullptr);
 
     mouseDeviceRefreshWindowMapping();
@@ -498,7 +513,13 @@ void renderFpsCounter()
 void renderMarkDirty(const SDL_Rect* rect)
 {
     sharedFpsLimiter.notifyActivity();
+    renderMarkDirtyAmbient(rect);
+}
 
+// Same as renderMarkDirty, but does not register user activity - for ambient
+// animation (palette cycling) that should not keep the idle limiter awake.
+void renderMarkDirtyAmbient(const SDL_Rect* rect)
+{
     if (gSdlTextureSurface == nullptr) {
         return;
     }
@@ -534,6 +555,15 @@ void renderPresent()
     // a draw call and a swap on an identical frame.
     if (!gRenderDirty) {
         return;
+    }
+
+    // A palette change re-colors every pixel - re-convert the indexed surface
+    // once, now that we know this frame is actually going to be presented.
+    if (gPaletteBlitPending) {
+        gPaletteBlitPending = false;
+        if (gSdlSurface != nullptr) {
+            SDL_BlitSurface(gSdlSurface, nullptr, gSdlTextureSurface, nullptr);
+        }
     }
 
     const unsigned char* pixels = static_cast<const unsigned char*>(gSdlTextureSurface->pixels)

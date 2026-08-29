@@ -52,6 +52,7 @@ int screenGetVisibleHeight();
 void handleWindowSizeChanged();
 void renderFpsCounter();
 void renderMarkDirty(const SDL_Rect* rect);
+void renderMarkDirtyAmbient(const SDL_Rect* rect);
 void renderPresent();
 bool screenIsExclusiveFullscreen();
 

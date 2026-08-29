@@ -252,6 +252,17 @@ int _init_vesa_mode(int width, int height)
 int _GNW95_init_window(int width, int height, WindowMode mode, int scale)
 {
     if (gSdlWindow == nullptr) {
+        // Touches are fully handled by the gesture recognizer (touch.cc).
+        // SDL's default synthetic mouse events from touches drove the cursor
+        // a SECOND time through mouseDeviceGetData: in relative mode the
+        // deltas accumulated during a drag (while the gesture branch skips
+        // the device poll) were dumped in one lump when the fingers lifted,
+        // flinging the cursor into the screen edges.
+        SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+        // Nor should a real mouse/trackpad feed the touch pipeline
+        // (defaults to on for mobile SDL builds).
+        SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
+
 #if __APPLE__ && TARGET_OS_IOS
         // OpenGL ES is deprecated on iOS and runs through a translation layer,
         // which costs both CPU and GPU power. Metal is the native path.

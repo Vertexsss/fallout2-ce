@@ -422,6 +422,26 @@ void touchOverlayToggleHighlight()
     paintButton(gHltButton, gHighlightActive);
 }
 
+// Whether the hold gesture (not the sticky button) turned the highlight on.
+static bool gHoldHighlightOwned = false;
+
+void touchOverlayHoldHighlight(bool active)
+{
+    if (active) {
+        if (!gHighlightActive) {
+            touchOverlayToggleHighlight();
+            gHoldHighlightOwned = true;
+        }
+    } else {
+        if (gHoldHighlightOwned) {
+            gHoldHighlightOwned = false;
+            if (gHighlightActive) {
+                touchOverlayToggleHighlight();
+            }
+        }
+    }
+}
+
 void touchOverlayCenterOnDude()
 {
     if (gDude != nullptr && gDude->tile != -1) {

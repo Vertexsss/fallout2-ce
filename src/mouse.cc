@@ -508,6 +508,10 @@ void _mouse_info()
 
         // Inertia must not carry over across a load or cutscene either.
         gFlingActive = false;
+
+        // Nor a held three-finger highlight - its release gesture may have
+        // been discarded with the backlog.
+        touchOverlayHoldHighlight(false);
         return;
     }
 
@@ -548,25 +552,16 @@ void _mouse_info()
             return;
         }
 
-        // FO2tweaks' highlighting uses sfall's key_pressed(), which reads
-        // SDL's own SDL_GetKeyboardState. Engine-internal _kb_simulate_key
-        // bypasses that, so push real SDL_KEYDOWN/UP events instead.
+        // Hold-to-highlight through the same native outline path as the
+        // HLT button. The old implementation only pushed a simulated Shift,
+        // which is invisible without the FO2Tweaks mod - the gesture never
+        // actually highlighted anything (the Shift still goes out via
+        // touchOverlay's pushShiftEvent for FO2Tweaks users).
         if (gesture.type == kLongPress && gesture.numberOfTouches == 3) {
-            static bool shiftHeld = false;
-            SDL_Event ev;
-            SDL_zero(ev);
-            ev.key.keysym.scancode = SDL_SCANCODE_LSHIFT;
-            ev.key.keysym.sym = SDLK_LSHIFT;
-            if (gesture.state == kBegan && !shiftHeld) {
-                ev.type = SDL_KEYDOWN;
-                ev.key.state = SDL_PRESSED;
-                SDL_PushEvent(&ev);
-                shiftHeld = true;
-            } else if (gesture.state == kEnded && shiftHeld) {
-                ev.type = SDL_KEYUP;
-                ev.key.state = SDL_RELEASED;
-                SDL_PushEvent(&ev);
-                shiftHeld = false;
+            if (gesture.state == kBegan) {
+                touchOverlayHoldHighlight(true);
+            } else if (gesture.state == kEnded) {
+                touchOverlayHoldHighlight(false);
             }
             return;
         }

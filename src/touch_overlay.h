@@ -39,6 +39,11 @@ void touchOverlayCenterOnDude();
 // Shift would make every movement tap crawl.
 void touchOverlayReleaseHighlight();
 
+// Hold-style highlight for the three-finger long press: enables the same
+// native outlines as the HLT button on press and releases them on lift;
+// leaves the sticky button state alone if it was already on.
+void touchOverlayHoldHighlight(bool active);
+
 } // namespace fallout
 
 #endif // FALLOUT_TOUCH_OVERLAY_H_

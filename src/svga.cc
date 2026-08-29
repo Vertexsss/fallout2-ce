@@ -729,6 +729,7 @@ void renderPresent()
 
     // Convert and upload every dirty rect separately - each exactly once per
     // presented frame, with the palette as it stands now.
+    bool uploadFailed = false;
     for (int i = 0; i < gDirtyRectCount; i++) {
         const SDL_Rect& r = gDirtyRects[i];
 
@@ -742,7 +743,9 @@ void renderPresent()
             + static_cast<size_t>(r.y) * gSdlTextureSurface->pitch
             + static_cast<size_t>(r.x) * gSdlTextureSurface->format->BytesPerPixel;
 
-        SDL_UpdateTexture(gSdlTexture, &r, pixels, gSdlTextureSurface->pitch);
+        if (SDL_UpdateTexture(gSdlTexture, &r, pixels, gSdlTextureSurface->pitch) != 0) {
+            uploadFailed = true;
+        }
 
         gStatUploadBytes += static_cast<long long>(r.w) * r.h * gSdlTextureSurface->format->BytesPerPixel;
         gStatRects++;
@@ -760,7 +763,13 @@ void renderPresent()
     movieRenderDirectOverlay();
     SDL_RenderPresent(gSdlRenderer);
 
-    gDirtyRectCount = 0;
+    // A transiently failed texture upload (Metal around app suspension)
+    // would otherwise leave stale pixels - ghost cursor images - in the
+    // texture forever: the surface is correct, but nothing re-marks the
+    // region. Keep the marks so the next present retries them.
+    if (!uploadFailed) {
+        gDirtyRectCount = 0;
+    }
 }
 
 // Buffer size and raw pixel data for freezing the loading screen

@@ -509,9 +509,6 @@ void _mouse_info()
         // Inertia must not carry over across a load or cutscene either.
         gFlingActive = false;
 
-        // Nor a held three-finger highlight - its release gesture may have
-        // been discarded with the backlog.
-        touchOverlayHoldHighlight(false);
         return;
     }
 
@@ -552,16 +549,12 @@ void _mouse_info()
             return;
         }
 
-        // Hold-to-highlight through the same native outline path as the
-        // HLT button. The old implementation only pushed a simulated Shift,
-        // which is invisible without the FO2Tweaks mod - the gesture never
-        // actually highlighted anything (the Shift still goes out via
-        // touchOverlay's pushShiftEvent for FO2Tweaks users).
+        // Three-finger long press toggles the native item highlight on and
+        // off, switch-style. It stays on while playing: the outlines do not
+        // touch movement (no simulated Shift is held).
         if (gesture.type == kLongPress && gesture.numberOfTouches == 3) {
             if (gesture.state == kBegan) {
-                touchOverlayHoldHighlight(true);
-            } else if (gesture.state == kEnded) {
-                touchOverlayHoldHighlight(false);
+                touchOverlayToggleHighlight();
             }
             return;
         }
@@ -588,10 +581,6 @@ void _mouse_info()
                 }
             }
 
-            // Any tap that reaches the world releases the sticky item
-            // highlight, so its simulated Shift never turns movement taps
-            // into slow walking.
-            touchOverlayReleaseHighlight();
 
 #if __APPLE__ && TARGET_OS_IOS
             if (handleHudTapThrough(gesture)) {

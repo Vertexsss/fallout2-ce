@@ -35,7 +35,6 @@ struct OverlayButton {
 };
 
 OverlayButton gCfgButton;
-OverlayButton gHltButton;
 bool gShown = false;
 bool gHighlightActive = false;
 
@@ -299,9 +298,6 @@ void touchOverlayInit()
     // Top-right corner, below the sfall difficulty indicator line.
     createButton(gCfgButton, screenW - kButtonWidth - kMargin, 36, "CFG", KEY_F11);
 
-    // Bottom-left, above the interface bar.
-    createButton(gHltButton, kMargin, screenH - INTERFACE_BAR_HEIGHT - kButtonHeight - 10,
-        "HLT", kTouchOverlayHighlightKeyCode);
 
     gPointerWindow = windowCreate(0, 0, kPointerSize, kPointerSize, COLOR_BLACK,
         WINDOW_HIDDEN | WINDOW_TRANSPARENT | WINDOW_MOVE_ON_TOP);
@@ -331,10 +327,6 @@ void touchOverlayFree()
         windowDestroy(gCfgButton.window);
         gCfgButton.window = -1;
     }
-    if (gHltButton.window != -1) {
-        windowDestroy(gHltButton.window);
-        gHltButton.window = -1;
-    }
     gShown = false;
 }
 
@@ -345,9 +337,6 @@ void touchOverlayShow()
     }
     if (gCfgButton.window != -1) {
         windowShow(gCfgButton.window);
-    }
-    if (gHltButton.window != -1) {
-        windowShow(gHltButton.window);
     }
     gShown = true;
 }
@@ -366,9 +355,6 @@ void touchOverlayHide()
     if (gCfgButton.window != -1) {
         windowHide(gCfgButton.window);
     }
-    if (gHltButton.window != -1) {
-        windowHide(gHltButton.window);
-    }
     pointerHide();
     gShown = false;
 }
@@ -378,7 +364,7 @@ bool touchOverlayContainsPoint(int x, int y)
     if (!gShown) {
         return false;
     }
-    if (pointInButton(gCfgButton, x, y) || pointInButton(gHltButton, x, y)) {
+    if (pointInButton(gCfgButton, x, y)) {
         return true;
     }
     return gPointerShown
@@ -399,10 +385,6 @@ bool touchOverlayHandleTap(int x, int y)
         return true;
     }
 
-    if (pointInButton(gHltButton, x, y)) {
-        touchOverlayToggleHighlight();
-        return true;
-    }
 
     if (gPointerShown
         && x >= gPointerX && x < gPointerX + kPointerSize
@@ -416,31 +398,13 @@ bool touchOverlayHandleTap(int x, int y)
 
 void touchOverlayToggleHighlight()
 {
+    // Switch-style: outlines only. No simulated Shift is held, so the
+    // highlight can stay on indefinitely without slowing movement to a
+    // walk, and no on-screen button is needed.
     gHighlightActive = !gHighlightActive;
-    pushShiftEvent(gHighlightActive);
     applyItemOutlines(gHighlightActive);
-    paintButton(gHltButton, gHighlightActive);
 }
 
-// Whether the hold gesture (not the sticky button) turned the highlight on.
-static bool gHoldHighlightOwned = false;
-
-void touchOverlayHoldHighlight(bool active)
-{
-    if (active) {
-        if (!gHighlightActive) {
-            touchOverlayToggleHighlight();
-            gHoldHighlightOwned = true;
-        }
-    } else {
-        if (gHoldHighlightOwned) {
-            gHoldHighlightOwned = false;
-            if (gHighlightActive) {
-                touchOverlayToggleHighlight();
-            }
-        }
-    }
-}
 
 void touchOverlayCenterOnDude()
 {

@@ -729,9 +729,11 @@ int mapScrollPixels(int dxPixels, int dyPixels)
     bool movedX = stepsX == 0;
     bool movedY = stepsY == 0;
 
-    if (stepsX != 0 || stepsY != 0) {
-        gameMouseObjectsHide();
+    // Classic mapScroll hides the world cursor before every buffer shift;
+    // keep that invariant for sub-tile (bias-only) shifts as well.
+    gameMouseObjectsHide();
 
+    if (stepsX != 0 || stepsY != 0) {
         if (mapTryStepCenter(stepsX, stepsY)) {
             movedX = true;
             movedY = true;

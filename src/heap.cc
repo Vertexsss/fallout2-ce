@@ -1014,8 +1014,7 @@ static bool heapBuildFreeBlocksList(Heap* heap)
         }
 
         if (ptr < heap->data || ptr + HEAP_BLOCK_OVERHEAD_SIZE > heapEnd) {
-            debugPrint("<[heap free list walk out of bounds]>
-");
+            debugPrint("<[heap free list walk out of bounds]>" "\n");
             return false;
         }
 

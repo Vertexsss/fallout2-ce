@@ -634,7 +634,12 @@ int tileSetCenter(int tile, int flags)
 
         // Stencil scroll limit (EDG-less maps): no scrolling into areas that
         // are pure void on resolutions larger than the original 640x480.
-        if (!tile_hires_stencil_allows_scrolling_to_tile(tile, gCenterTile, gElevation, gTileWindowWidth, gTileWindowHeight)) {
+        // Leashed camera only: the limit bbox is built from 640x380 views, so
+        // on windows larger than the bbox it degenerates into a center lock
+        // that repels the camera from map edges. With FREE CAMERA the black
+        // mask alone hides the void.
+        if (!settings.ui.free_scroll
+            && !tile_hires_stencil_allows_scrolling_to_tile(tile, gCenterTile, gElevation, gTileWindowWidth, gTileWindowHeight)) {
             return -1;
         }
     }

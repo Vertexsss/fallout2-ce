@@ -75,8 +75,10 @@ void FpsLimiter::throttle()
             break;
         }
 
+        // Unfocused windows tolerate slower reaction - nap in bigger chunks.
+        const unsigned int chunkMs = gProgramIsActive ? 16 : 50;
         const unsigned int remaining = budget - elapsed;
-        SDL_Delay(remaining < 16 ? remaining : 16);
+        SDL_Delay(remaining < chunkMs ? remaining : chunkMs);
     }
 }
 

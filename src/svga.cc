@@ -66,16 +66,44 @@ static bool gPaletteIndexPresent[256];
 static bool gPalettePresenceValid = false;
 static unsigned int gPalettePresenceScanTicks = 0;
 
+// Bounding box of all pixels using the cycling index range (229-255),
+// computed alongside the presence map. A cycling tick only re-colors those
+// pixels, so conversion and upload can be limited to this region.
+static constexpr int kCycleRangeStart = 229;
+static SDL_Rect gCycleBBox;
+static bool gCycleBBoxNonEmpty = false;
+
+// Scope of the pending palette re-conversion: full surface, or just a rect.
+static bool gPaletteBlitFull = false;
+static SDL_Rect gPaletteBlitRect;
+
 static void paletteRebuildPresence()
 {
     memset(gPaletteIndexPresent, 0, sizeof(gPaletteIndexPresent));
 
+    int minX = gSdlSurface->w;
+    int minY = gSdlSurface->h;
+    int maxX = -1;
+    int maxY = -1;
+
     const unsigned char* row = static_cast<const unsigned char*>(gSdlSurface->pixels);
     for (int y = 0; y < gSdlSurface->h; y++) {
         for (int x = 0; x < gSdlSurface->w; x++) {
-            gPaletteIndexPresent[row[x]] = true;
+            unsigned char index = row[x];
+            gPaletteIndexPresent[index] = true;
+            if (index >= kCycleRangeStart) {
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
         }
         row += gSdlSurface->pitch;
+    }
+
+    gCycleBBoxNonEmpty = maxX >= 0;
+    if (gCycleBBoxNonEmpty) {
+        gCycleBBox = { minX, minY, maxX - minX + 1, maxY - minY + 1 };
     }
 
     gPalettePresenceValid = true;
@@ -318,9 +346,26 @@ void directDrawSetPaletteInRange(unsigned char* palette, int start, int count)
         // to the next present and do not count it as user activity, so the
         // idle FPS limiter still engages on otherwise static scenes. If the
         // cycled colors are not even on screen, skip the update entirely.
+        // When the update stays within the cycling range and we know where
+        // those pixels are, restrict the re-conversion to their bounding box.
         if (visibleChange) {
-            gPaletteBlitPending = true;
-            renderMarkDirtyAmbient(nullptr);
+            const bool cycleOnly = start >= kCycleRangeStart && start + count <= 256;
+            if (cycleOnly && gPalettePresenceValid && gCycleBBoxNonEmpty) {
+                if (gPaletteBlitPending) {
+                    if (!gPaletteBlitFull) {
+                        SDL_UnionRect(&gPaletteBlitRect, &gCycleBBox, &gPaletteBlitRect);
+                    }
+                } else {
+                    gPaletteBlitFull = false;
+                    gPaletteBlitRect = gCycleBBox;
+                }
+                gPaletteBlitPending = true;
+                renderMarkDirtyAmbient(&gCycleBBox);
+            } else {
+                gPaletteBlitPending = true;
+                gPaletteBlitFull = true;
+                renderMarkDirtyAmbient(nullptr);
+            }
         }
     }
 }
@@ -343,6 +388,7 @@ void directDrawSetPalette(unsigned char* palette)
         // Full palette sets come from fades - keep them counted as activity
         // so fades run at full frame rate.
         gPaletteBlitPending = true;
+        gPaletteBlitFull = true;
         renderMarkDirty(nullptr);
     }
 }
@@ -476,6 +522,7 @@ static void destroyRenderer()
     // recorded against - forget it before that surface goes away.
     gRenderDirty = false;
     gPaletteBlitPending = false;
+    gPaletteBlitFull = false;
 
     if (gSdlTextureSurface != nullptr) {
         SDL_FreeSurface(gSdlTextureSurface);
@@ -502,6 +549,7 @@ void handleWindowSizeChanged()
     // The new surface starts out blank - re-convert the game surface into it
     // on the next present and upload it in full.
     gPaletteBlitPending = true;
+    gPaletteBlitFull = true;
     renderMarkDirty(nullptr);
 
     mouseDeviceRefreshWindowMapping();
@@ -611,13 +659,20 @@ void renderPresent()
         return;
     }
 
-    // A palette change re-colors every pixel - re-convert the indexed surface
-    // once, now that we know this frame is actually going to be presented.
+    // A palette change re-colors the affected pixels - re-convert the indexed
+    // surface once, now that we know this frame is actually being presented.
+    // Cycling-only changes touch just the recorded bounding box.
     if (gPaletteBlitPending) {
         gPaletteBlitPending = false;
         if (gSdlSurface != nullptr) {
-            SDL_BlitSurface(gSdlSurface, nullptr, gSdlTextureSurface, nullptr);
+            if (gPaletteBlitFull) {
+                SDL_BlitSurface(gSdlSurface, nullptr, gSdlTextureSurface, nullptr);
+            } else {
+                SDL_Rect r = gPaletteBlitRect;
+                SDL_BlitSurface(gSdlSurface, &r, gSdlTextureSurface, &r);
+            }
         }
+        gPaletteBlitFull = false;
     }
 
     const unsigned char* pixels = static_cast<const unsigned char*>(gSdlTextureSurface->pixels)

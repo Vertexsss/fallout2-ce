@@ -65,31 +65,58 @@ static void audioEngineMixin(void* userData, Uint8* stream, int length)
             int pos = 0;
             while (pos < length) {
                 int remaining = length - pos;
-                if (remaining > sizeof(buffer)) {
-                    remaining = sizeof(buffer);
+                if (remaining > (int)sizeof(buffer)) {
+                    remaining = (int)sizeof(buffer);
                 }
 
-                // TODO: Make something better than frame-by-frame convertion.
-                SDL_AudioStreamPut(soundBuffer->stream, (unsigned char*)soundBuffer->data + soundBuffer->pos, srcFrameSize);
-                soundBuffer->pos += srcFrameSize;
+                // Feed the stream in large chunks. Frame-by-frame conversion
+                // costs tens of thousands of SDL_AudioStreamPut/Get calls per
+                // second of audio - pure CPU (and battery) overhead for
+                // byte-identical output.
+                int fed = 0;
+                if (SDL_AudioStreamAvailable(soundBuffer->stream) < remaining) {
+                    int srcAvailable = soundBuffer->size - soundBuffer->pos;
+                    int chunk = 8 * (int)sizeof(buffer);
+                    if (chunk > srcAvailable) {
+                        chunk = srcAvailable;
+                    }
+                    chunk -= chunk % srcFrameSize;
+
+                    if (chunk > 0) {
+                        SDL_AudioStreamPut(soundBuffer->stream, (unsigned char*)soundBuffer->data + soundBuffer->pos, chunk);
+                        soundBuffer->pos += chunk;
+                        fed = chunk;
+                    }
+
+                    if (soundBuffer->pos >= soundBuffer->size && soundBuffer->looping) {
+                        soundBuffer->pos %= soundBuffer->size;
+                    }
+                }
 
                 int bytesRead = SDL_AudioStreamGet(soundBuffer->stream, buffer, remaining);
                 if (bytesRead == -1) {
                     break;
                 }
 
-                SDL_MixAudioFormat(stream + pos, buffer, gAudioEngineSpec.format, bytesRead, soundBuffer->volume);
-
-                if (soundBuffer->pos >= soundBuffer->size) {
-                    if (soundBuffer->looping) {
-                        soundBuffer->pos %= soundBuffer->size;
-                    } else {
-                        soundBuffer->playing = false;
+                if (bytesRead == 0) {
+                    if (fed == 0) {
+                        // Source exhausted and the stream is drained.
+                        if (!soundBuffer->looping) {
+                            soundBuffer->playing = false;
+                        }
                         break;
                     }
+                    continue;
                 }
 
+                SDL_MixAudioFormat(stream + pos, buffer, gAudioEngineSpec.format, bytesRead, soundBuffer->volume);
                 pos += bytesRead;
+
+                if (soundBuffer->pos >= soundBuffer->size && !soundBuffer->looping
+                    && SDL_AudioStreamAvailable(soundBuffer->stream) == 0) {
+                    soundBuffer->playing = false;
+                    break;
+                }
             }
         }
     }

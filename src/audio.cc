@@ -231,6 +231,7 @@ int audioOpen(const char* fname, AudioFileInfo* info, bool* isMemoryBackedPtr)
     audioFile->flags = AUDIO_IN_USE;
     audioFile->stream = stream;
 
+
     if (openMode == AUDIO_OPEN_MODE_WAV || openMode == AUDIO_OPEN_MODE_OGG) {
         AudioFileInfo decodedInfo = {};
         audioFile->flags |= AUDIO_MEMORY;
@@ -264,6 +265,50 @@ int audioOpen(const char* fname, AudioFileInfo* info, bool* isMemoryBackedPtr)
             *isMemoryBackedPtr = true;
         }
     } else if (openMode == AUDIO_OPEN_MODE_COMPRESSED) {
+        // The Fargus localization ships speech as raw 16-bit mono PCM behind
+        // a pseudo-ACM header (their patched executable played it directly;
+        // a real decoder turns it into white noise). Signature: file size ==
+        // the header's "samples" field + 32, where the field is actually the
+        // payload size in bytes. A legitimate ACM compresses far better than
+        // 2:1, so it cannot match this by accident.
+        {
+            int wrappedFileSize = fileGetSize(stream);
+            unsigned char acmHeader[14];
+            if (fileRead(acmHeader, 1, sizeof(acmHeader), stream) == sizeof(acmHeader)
+                && acmHeader[0] == 0x97 && acmHeader[1] == 0x28 && acmHeader[2] == 0x03 && acmHeader[3] == 0x01) {
+                int declaredSamples = acmHeader[4] | (acmHeader[5] << 8) | (acmHeader[6] << 16) | (acmHeader[7] << 24);
+                int headerRate = acmHeader[10] | (acmHeader[11] << 8);
+                if (declaredSamples > 0 && headerRate > 0 && wrappedFileSize == declaredSamples + 32) {
+                    int payloadSize = declaredSamples & ~1;
+                    unsigned char* payload = (unsigned char*)internal_malloc_safe(payloadSize, __FILE__, __LINE__);
+                    fileSeek(stream, 32, SEEK_SET);
+                    if (fileRead(payload, 1, payloadSize, stream) == payloadSize) {
+                        fileClose(stream);
+                        audioFile->stream = nullptr;
+                        audioFile->flags |= AUDIO_MEMORY;
+                        audioFile->data = payload;
+                        audioFile->fileSize = payloadSize;
+                        audioFile->sampleRate = headerRate;
+                        audioFile->channels = 1;
+                        audioFile->bitsPerSample = 16;
+                        if (info != nullptr) {
+                            info->sampleRate = headerRate;
+                            info->channels = 1;
+                            info->bitsPerSample = 16;
+                        }
+                        if (isMemoryBackedPtr != nullptr) {
+                            *isMemoryBackedPtr = true;
+                        }
+                        audioFile->position = 0;
+                        debugPrint("AudioOpen: raw-PCM pseudo-ACM: %s\n", path);
+                        return index + 1;
+                    }
+                    internal_free_safe(payload, __FILE__, __LINE__);
+                }
+            }
+            fileSeek(stream, 0, SEEK_SET);
+        }
+
         audioFile->flags |= AUDIO_COMPRESSED;
         audioFile->soundDecoder = soundDecoderInit(audioSoundDecoderReadHandler, audioFile->stream, &(audioFile->channels), &(audioFile->sampleRate), &(audioFile->fileSize));
         audioFile->fileSize *= 2;

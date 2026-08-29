@@ -1402,6 +1402,10 @@ int _soundGetPosition(Sound* sound)
         } else {
             readPos -= sound->lastPosition + sound->numBytesRead;
         }
+    } else {
+        // Lip sync times phonemes and the end-of-line stop by this value;
+        // report the audible position, not the batched feed position.
+        audioEngineSoundBufferGetPlaybackPosition(sound->soundBuffer, &readPos);
     }
 
     return readPos;

@@ -134,6 +134,7 @@ static void audioEngineMixin(void* userData, Uint8* stream, int length)
     } else {
         SDL_AtomicAdd(&gAudioSilentCallbacks, 1);
     }
+
 }
 
 bool audioEngineInit()
@@ -398,29 +399,11 @@ bool audioEngineSoundBufferGetCurrentPosition(int soundBufferIndex, unsigned int
     }
 
     if (readPosPtr != nullptr) {
-        // pos tracks how much source has been FED into the resampler stream,
-        // and feeding happens in large batches - the audible position lags
-        // by whatever still sits in the stream. Lip sync and end-of-speech
-        // detection read this, so convert back to playback-accurate bytes.
-        unsigned int pos = soundBuffer->pos;
-        if (soundBuffer->stream != nullptr) {
-            int queuedDst = SDL_AudioStreamAvailable(soundBuffer->stream);
-            if (queuedDst > 0) {
-                long long srcByteRate = (long long)soundBuffer->rate * soundBuffer->channels * (soundBuffer->bitsPerSample / 8);
-                long long dstByteRate = (long long)gAudioEngineSpec.freq * gAudioEngineSpec.channels * (SDL_AUDIO_BITSIZE(gAudioEngineSpec.format) / 8);
-                if (srcByteRate > 0 && dstByteRate > 0) {
-                    unsigned int queuedSrc = (unsigned int)(queuedDst * srcByteRate / dstByteRate);
-                    if (pos >= queuedSrc) {
-                        pos -= queuedSrc;
-                    } else if (soundBuffer->looping && soundBuffer->size > 0) {
-                        pos = (unsigned int)((pos + (unsigned long long)soundBuffer->size - queuedSrc % soundBuffer->size) % soundBuffer->size);
-                    } else {
-                        pos = 0;
-                    }
-                }
-            }
-        }
-        *readPosPtr = pos;
+        // Raw fed position: the streaming refill bookkeeping
+        // (_refreshSoundBuffers, movie ring) is built around it. Consumers
+        // that must sync to the audible output use
+        // audioEngineSoundBufferGetPlaybackPosition instead.
+        *readPosPtr = soundBuffer->pos;
     }
 
     if (writePosPtr != nullptr) {
@@ -432,6 +415,53 @@ bool audioEngineSoundBufferGetCurrentPosition(int soundBufferIndex, unsigned int
             *writePosPtr += soundBuffer->rate / 150;
             *writePosPtr %= soundBuffer->size;
         }
+    }
+
+    return true;
+}
+
+// Playback-accurate read position: subtracts whatever still sits queued in
+// the resampler stream from the batched feed position. For consumers that
+// sync to the audible output (lip sync); the streaming refill bookkeeping
+// must keep seeing the raw fed position.
+bool audioEngineSoundBufferGetPlaybackPosition(int soundBufferIndex, unsigned int* posPtr)
+{
+    if (!audioEngineIsInitialized()) {
+        return false;
+    }
+
+    if (!soundBufferIsValid(soundBufferIndex)) {
+        return false;
+    }
+
+    AudioEngineSoundBuffer* soundBuffer = &(gAudioEngineSoundBuffers[soundBufferIndex]);
+    std::lock_guard<std::recursive_mutex> lock(soundBuffer->mutex);
+
+    if (!soundBuffer->active) {
+        return false;
+    }
+
+    unsigned int pos = soundBuffer->pos;
+    if (soundBuffer->stream != nullptr) {
+        int queuedDst = SDL_AudioStreamAvailable(soundBuffer->stream);
+        if (queuedDst > 0) {
+            long long srcByteRate = (long long)soundBuffer->rate * soundBuffer->channels * (soundBuffer->bitsPerSample / 8);
+            long long dstByteRate = (long long)gAudioEngineSpec.freq * gAudioEngineSpec.channels * (SDL_AUDIO_BITSIZE(gAudioEngineSpec.format) / 8);
+            if (srcByteRate > 0 && dstByteRate > 0) {
+                unsigned int queuedSrc = (unsigned int)(queuedDst * srcByteRate / dstByteRate);
+                if (pos >= queuedSrc) {
+                    pos -= queuedSrc;
+                } else if (soundBuffer->looping && soundBuffer->size > 0) {
+                    pos = (unsigned int)((pos + (unsigned long long)soundBuffer->size - queuedSrc % soundBuffer->size) % soundBuffer->size);
+                } else {
+                    pos = 0;
+                }
+            }
+        }
+    }
+
+    if (posPtr != nullptr) {
+        *posPtr = pos;
     }
 
     return true;

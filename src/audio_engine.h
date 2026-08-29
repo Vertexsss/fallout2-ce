@@ -27,6 +27,7 @@ bool audioEngineSoundBufferSetPan(int soundBufferIndex, int pan);
 bool audioEngineSoundBufferPlay(int soundBufferIndex, unsigned int flags);
 bool audioEngineSoundBufferStop(int soundBufferIndex);
 bool audioEngineSoundBufferGetCurrentPosition(int soundBufferIndex, unsigned int* readPosPtr, unsigned int* writePosPtr);
+bool audioEngineSoundBufferGetPlaybackPosition(int soundBufferIndex, unsigned int* posPtr);
 bool audioEngineSoundBufferSetCurrentPosition(int soundBufferIndex, unsigned int pos);
 bool audioEngineSoundBufferLock(int soundBufferIndex, unsigned int writePos, unsigned int writeBytes, void** audioPtr1, unsigned int* audioBytes1, void** audioPtr2, unsigned int* audioBytes2, unsigned int flags);
 bool audioEngineSoundBufferUnlock(int soundBufferIndex, void* audioPtr1, unsigned int audioBytes1, void* audioPtr2, unsigned int audioBytes2);

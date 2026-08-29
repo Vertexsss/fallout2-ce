@@ -1,7 +1,7 @@
 #include "touch.h"
 
 #include <algorithm>
-#include <stack>
+#include <queue>
 
 #include "mouse.h"
 #include "svga.h"
@@ -38,7 +38,11 @@ struct Touch {
 
 static Touch touches[MAX_TOUCHES];
 static Gesture currentGesture;
-static std::stack<Gesture> gestureEventsQueue;
+// FIFO: with a stack, frames that push more than one gesture (a synthetic
+// secondary tap plus the continuous-gesture update) bury the tap under an
+// ever-refreshed top - it either never surfaces or fires in a burst after
+// the fingers lift.
+static std::queue<Gesture> gestureEventsQueue;
 
 static bool gUseTouchscreenMode = false;
 // A secondary tap fired in this sequence - swallow the primary finger's own
@@ -382,7 +386,7 @@ bool touch_get_gesture(Gesture* gesture)
         return false;
     }
 
-    *gesture = gestureEventsQueue.top();
+    *gesture = gestureEventsQueue.front();
     gestureEventsQueue.pop();
 
     return true;

@@ -2009,8 +2009,13 @@ static int lsgLoadGameInSlot(int slot)
     if (isInCombat()) {
         interfaceBarEndButtonsHide(false);
         _combat_over_from_load();
-        gameMouseSetCursor(MOUSE_CURSOR_WAIT_PLANET);
     }
+
+    // Snapshot the screen layout right before the asset parsing begins
+    initLoadingScreenFreeze();
+
+    // Switch cursor look to the planet spinner
+    gameMouseSetCursor(MOUSE_CURSOR_WAIT_PLANET);
 
     // SFALL: Call "before start" event
     sfallOnBeforeGameStart();
@@ -2041,6 +2046,9 @@ static int lsgLoadGameInSlot(int slot)
     debugPrint("LOADSAVE: Load file header size read: %ld bytes.\n", fileTell(_flptr) - pos);
 
     for (int index = 0; index < LOAD_SAVE_HANDLER_COUNT; index += 1) {
+        // Keep the cursor responsive and planet spinning between sub-system reads
+        renderLoadingScreenCursor();
+
         long pos = fileTell(_flptr);
         LoadGameHandler* handler = _master_load_list[index];
         if (handler(_flptr) == -1) {
@@ -2051,6 +2059,7 @@ static int lsgLoadGameInSlot(int slot)
             gameReset();
             _loadingGame = false;
             _loadingMapId = -1;
+            freeLoadingScreenFreeze();
             return -1;
         }
 
@@ -2058,6 +2067,8 @@ static int lsgLoadGameInSlot(int slot)
     }
 
     _loadingMapId = -1;
+    // Clean up the backup textures as we are ready to reveal the loaded map
+    freeLoadingScreenFreeze();
 
     debugPrint("LOADSAVE: Total load data read: %ld bytes.\n", fileTell(_flptr));
     fileClose(_flptr);

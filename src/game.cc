@@ -1766,4 +1766,24 @@ void gameHandleSkilldexResult(SkilldexRC rc)
     }
 }
 
+void renderLoadingScreenCursor()
+{
+    // Exit immediately if the freeze buffer wasn't initialized,
+    // or if the function is accidentally called outside the loading sequence.
+    if (gLoadingScreenPixelsBackup == nullptr || gSdlTextureSurface == nullptr || gSdlTextureSurface->pixels == nullptr) {
+        return;
+    }
+    // Wipe out any partial map rendering by restoring the clean menu background
+    restoreLoadingScreenFreeze();
+    // Set mouse position
+    SDL_PumpEvents();
+    int x, y;
+    SDL_GetMouseState(&x, &y);
+    _mouse_set_position(x, y);
+    mouseShowCursor();
+
+    // Present the compiled frame onto the display
+    renderPresent();
+}
+
 } // namespace fallout

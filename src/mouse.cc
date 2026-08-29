@@ -465,6 +465,16 @@ static int gGesturePrevY = 0;
 // "press any key" consumers see it, everything else ignores the code.
 constexpr int kHiddenCursorTapKeyCode = 2003;
 
+// When the cursor was last deliberately moved. Edge scrolling on touch only
+// engages near this moment: a parked trackpad-style cursor at a screen edge
+// must not drag the camera forever.
+static unsigned int gLastCursorMotionTicks = 0;
+
+bool mouseCursorMovedRecently(unsigned int windowMs)
+{
+    return SDL_GetTicks() - gLastCursorMotionTicks <= windowMs;
+}
+
 static double gFlingCarryX = 0.0;
 static double gFlingCarryY = 0.0;
 static double gFlingVX = 0.0;
@@ -872,6 +882,8 @@ void _mouse_simulate_input(int delta_x, int delta_y, int buttons)
     _raw_buttons = gMouseEvent;
 
     if (delta_x != 0 || delta_y != 0) {
+        gLastCursorMotionTicks = SDL_GetTicks();
+
         Rect mouseRect;
         mouseRect.left = gMouseCursorX;
         mouseRect.top = gMouseCursorY;

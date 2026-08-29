@@ -2594,11 +2594,13 @@ int gameMouseHandleScrolling(int x, int y, int cursor)
 
     int flags = 0;
 
-    // Edge scrolling is optional on the touch build: the trackpad cursor
-    // parked at a screen edge must not drag the camera - two-finger panning
-    // and the free camera cover map scrolling. The clipped-area cursor logic
-    // below still runs with flags == 0.
-    if (settings.ui.edge_scroll) {
+    // Edge scrolling on touch engages only while the cursor is actively
+    // being pushed (finger deltas within the last moments): a parked
+    // trackpad-style cursor at a screen edge must not drag the camera
+    // forever. A physical mouse keeps the classic hold-at-edge behavior.
+    // The clipped-area cursor logic below still runs with flags == 0.
+    if (settings.ui.edge_scroll
+        && (mouseDeviceHasPhysicalMouse() || mouseCursorMovedRecently(700))) {
         if (x <= _scr_size.left) {
             flags |= SCROLLABLE_W;
         }

@@ -41,6 +41,7 @@ void mouseShowCursor();
 void mouseHideCursor();
 void _mouse_info();
 void _mouse_simulate_input(int delta_x, int delta_y, int buttons);
+bool mouseCursorMovedRecently(unsigned int windowMs);
 bool _mouse_in(int left, int top, int right, int bottom);
 bool _mouse_click_in(int left, int top, int right, int bottom);
 void mouseGetRect(Rect* rect);

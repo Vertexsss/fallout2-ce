@@ -26,6 +26,11 @@ void mouseDeviceNotePhysicalInput()
     gPhysicalMouseSeen = true;
 }
 
+bool mouseDeviceHasPhysicalMouse()
+{
+    return gPhysicalMouseSeen;
+}
+
 static void mouseDeviceMapWindowToLogicalPosition(int* x, int* y);
 
 // 0x4E0400

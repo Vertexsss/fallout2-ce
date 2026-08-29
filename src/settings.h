@@ -63,10 +63,10 @@ struct UISettings {
     // screen away from the player. Map-edge and scroll-blocker checks stay.
     bool free_scroll = true;
 
-    // Scroll the map when the cursor touches a screen edge. Off by default
-    // for the touch build: the trackpad-style cursor drifts to edges during
-    // two-finger pans and would keep dragging the camera toward itself.
-    bool edge_scroll = false;
+    // Scroll the map when the cursor touches a screen edge. On touch this
+    // only engages while the cursor is actively moving (see
+    // gameMouseHandleScrolling), so a parked cursor cannot drag the camera.
+    bool edge_scroll = true;
 
     // Edge-of-screen arrow pointing toward the player when the view has been
     // scrolled away; tapping it re-centers on the player.

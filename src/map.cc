@@ -645,6 +645,70 @@ static bool mapTryStepCenter(int stepsX, int stepsY)
     return tileSetCenter(newCenterTile, 0) != -1;
 }
 
+// Shift the rendered iso view by raw pixels and re-render only the exposed
+// strips - the same trick classic mapScroll uses for whole tile steps, saving
+// the full-view tile rendering during smooth panning.
+static void isoWindowShiftPixels(int screenDx, int screenDy)
+{
+    Rect r1;
+    rectCopy(&r1, &gIsoWindowRect);
+
+    Rect r2;
+    rectCopy(&r2, &r1);
+
+    int width = screenGetWidth() - abs(screenDx);
+    int pitch = screenGetWidth();
+    int height = screenGetVisibleHeight() - abs(screenDy);
+
+    if (screenDx < 0) {
+        r2.right = r2.left - screenDx;
+    } else {
+        r2.left = r2.right - screenDx;
+    }
+
+    unsigned char* src;
+    unsigned char* dest;
+    int step;
+    if (screenDy < 0) {
+        r1.bottom = r1.top - screenDy;
+        src = gIsoWindowBuffer + pitch * (height - 1);
+        dest = gIsoWindowBuffer + pitch * (screenGetVisibleHeight() - 1);
+        if (screenDx < 0) {
+            dest -= screenDx;
+        } else {
+            src += screenDx;
+        }
+        step = -pitch;
+    } else {
+        r1.top = r1.bottom - screenDy;
+        dest = gIsoWindowBuffer;
+        src = gIsoWindowBuffer + pitch * screenDy;
+
+        if (screenDx < 0) {
+            dest -= screenDx;
+        } else {
+            src += screenDx;
+        }
+        step = pitch;
+    }
+
+    for (int y = 0; y < height; y++) {
+        memmove(dest, src, width);
+        dest += step;
+        src += step;
+    }
+
+    if (screenDx != 0) {
+        _map_scroll_refresh(&r2);
+    }
+
+    if (screenDy != 0) {
+        _map_scroll_refresh(&r1);
+    }
+
+    windowRefresh(gIsoWindow);
+}
+
 int mapScrollPixels(int dxPixels, int dyPixels)
 {
     // The applied viewport bias is the single source of truth - forced
@@ -695,7 +759,15 @@ int mapScrollPixels(int dxPixels, int dyPixels)
 
     tileSetViewPixelBias(finalBiasX, finalBiasY);
 
-    tileWindowRefresh();
+    // Actual on-screen displacement of the view this call.
+    int shiftX = movedX ? dxPixels : 0;
+    int shiftY = movedY ? dyPixels : 0;
+
+    if (abs(shiftX) < screenGetWidth() - 32 && abs(shiftY) < screenGetVisibleHeight() - 24) {
+        isoWindowShiftPixels(shiftX, shiftY);
+    } else {
+        tileWindowRefresh();
+    }
 
     return (movedX || movedY) ? 0 : -1;
 }

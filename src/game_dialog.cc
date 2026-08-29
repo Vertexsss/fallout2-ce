@@ -3483,11 +3483,11 @@ int gameDialogCreateBarterWindow()
     _gdialog_scroll_subwin(win.get(), true, backgroundFrmImage.getData(), windowBuffer, nullptr, bgOverlapHeight);
 
     // TRADE
-    int tradeBtn = createDialogRedButton(win.get(), 40, 162, nullptr, KEY_LOWERCASE_M);
+    int tradeBtn = createDialogRedButton(win.get(), 40, 163, nullptr, KEY_LOWERCASE_M);
     if (tradeBtn == -1) return -1;
 
     // TALK
-    int talkBtn = createDialogRedButton(win.get(), 583, 161, nullptr, KEY_LOWERCASE_T);
+    int talkBtn = createDialogRedButton(win.get(), 583, 162, nullptr, KEY_LOWERCASE_T);
     if (talkBtn == -1) return -1;
 
     UniqueObject playerTableObj;

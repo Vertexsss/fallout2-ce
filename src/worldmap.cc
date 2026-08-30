@@ -3383,7 +3383,9 @@ static int wmWorldMapFunc(int a1)
         return -1;
     }
 
-    touch_set_touchscreen_mode(false);
+    // Touch: taps land where the finger is (travel, town list, buttons);
+    // two-finger pans scroll the map through the wheel path.
+    touch_set_touchscreen_mode(true);
 
     wmMatchWorldPosToArea(wmGenData.worldPosX, wmGenData.worldPosY, &(wmGenData.currentAreaId));
 
@@ -3715,6 +3717,7 @@ static int wmWorldMapFunc(int a1)
 
     wmFadeIn();
 
+    touch_set_touchscreen_mode(false);
     return rc;
 }
 

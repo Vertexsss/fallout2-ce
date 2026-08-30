@@ -1220,6 +1220,17 @@ void _gmouse_handle_event(int mouseX, int mouseY, int mouseState)
 
                     int newMouseY = mouseY;
                     int actionIndex = 0;
+#if __APPLE__ && TARGET_OS_IOS
+                    // Touch: the menu is anchored in the world at the press
+                    // point; keep the cursor anchored there too, so sliding the
+                    // finger only walks the highlight instead of dragging the
+                    // arrow away from the menu. Finger travel is accumulated
+                    // from the snapped-back position each frame.
+                    const bool anchorCursor = true;
+#else
+                    const bool anchorCursor = false;
+#endif
+                    int fingerTravel = 0;
                     while ((mouseGetEvent() & MOUSE_EVENT_LEFT_BUTTON_UP) == 0) {
                         sharedFpsLimiter.mark();
 
@@ -1233,9 +1244,20 @@ void _gmouse_handle_event(int mouseX, int mouseY, int mouseState)
                         int updatedMouseY;
                         mouseGetPosition(&updatedMouseX, &updatedMouseY);
 
-                        if (abs(updatedMouseY - newMouseY) > 10) {
+                        int deltaY;
+                        if (anchorCursor) {
+                            fingerTravel += updatedMouseY - mouseY;
+                            if (updatedMouseX != mouseX || updatedMouseY != mouseY) {
+                                _mouse_set_position(mouseX, mouseY);
+                            }
+                            deltaY = fingerTravel;
+                        } else {
+                            deltaY = updatedMouseY - newMouseY;
+                        }
+
+                        if (abs(deltaY) > 10) {
                             int nextActionIndex;
-                            if (newMouseY >= updatedMouseY) {
+                            if (deltaY < 0) {
                                 nextActionIndex = actionIndex - 1;
                             } else {
                                 nextActionIndex = actionIndex + 1;
@@ -1246,6 +1268,7 @@ void _gmouse_handle_event(int mouseX, int mouseY, int mouseState)
                                 actionIndex = nextActionIndex;
                             }
                             newMouseY = updatedMouseY;
+                            fingerTravel = 0;
                         }
 
                         renderPresent();

@@ -657,7 +657,11 @@ void _mouse_info()
                 } else if (touch_get_pan_mode() || gesture.numberOfTouches == 2) {
                     // Windowed screens (inventory, dialogs) interpret the
                     // wheel as list scrolling - keep that behavior there.
-                    if (touch_get_touchscreen_mode()) {
+                    // Screens that replace the iso view entirely (the world
+                    // map) also consume the wheel: the world map scrolls by
+                    // it, and the pixel pan below would only move the hidden
+                    // iso map underneath.
+                    if (touch_get_touchscreen_mode() || isoIsDisabled()) {
                         // List consumers only look at the wheel's sign, one
                         // row per event - so emitting a wheel tick on every
                         // motion event scrolled by elapsed time, not finger

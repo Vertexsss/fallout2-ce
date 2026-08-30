@@ -34,6 +34,23 @@ void touch_process_gesture();
 bool touch_get_gesture(Gesture* gesture);
 void touch_set_touchscreen_mode(const bool value);
 bool touch_get_touchscreen_mode();
+
+// Modal screens that pop up over the world: the touch build runs the world
+// cursor in trackpad mode, so taps there click wherever the cursor stands.
+// Hold touchscreen mode (taps land under the finger) for the screen's
+// lifetime and restore the caller's mode on every exit path.
+struct TouchscreenModeScope {
+    bool previous;
+    TouchscreenModeScope()
+        : previous(touch_get_touchscreen_mode())
+    {
+        touch_set_touchscreen_mode(true);
+    }
+    ~TouchscreenModeScope()
+    {
+        touch_set_touchscreen_mode(previous);
+    }
+};
 void touch_set_pan_mode(const bool value);
 bool touch_get_pan_mode();
 

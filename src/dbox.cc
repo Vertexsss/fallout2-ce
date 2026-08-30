@@ -27,22 +27,6 @@
 
 namespace fallout {
 
-// Message boxes pop up over the world, where the touch build runs the
-// cursor in trackpad mode - taps there click wherever the cursor stands.
-// Put the box in touchscreen mode (taps land under the finger) for its
-// lifetime and restore whatever mode the caller was in on every exit path.
-struct DialogBoxTouchScope {
-    bool previous;
-    DialogBoxTouchScope()
-        : previous(touch_get_touchscreen_mode())
-    {
-        touch_set_touchscreen_mode(true);
-    }
-    ~DialogBoxTouchScope()
-    {
-        touch_set_touchscreen_mode(previous);
-    }
-};
 
 #define FILE_DIALOG_LINE_COUNT 12
 
@@ -239,7 +223,7 @@ int showDialogBox(const char* title, const char** body, int bodyLength, int x, i
         fontSetCurrent(savedFont);
         return -1;
     }
-    DialogBoxTouchScope touchScope;
+    TouchscreenModeScope touchScope;
 
     unsigned char* windowBuf = windowGetBuffer(win);
     memcpy(windowBuf, backgroundFrmImage.getData(), backgroundFrmImage.getWidth() * backgroundFrmImage.getHeight());
@@ -624,6 +608,7 @@ int showLoadFileDialog(char* title, char** fileList, char* dest, int fileListLen
     if (win == -1) {
         return -1;
     }
+    TouchscreenModeScope touchScope;
 
     unsigned char* windowBuffer = windowGetBuffer(win);
     memcpy(windowBuffer, frmImages[FILE_DIALOG_FRM_BACKGROUND].getData(), backgroundWidth * backgroundHeight);
@@ -989,6 +974,7 @@ int showSaveFileDialog(char* title, char** fileList, char* dest, int fileListLen
     if (win == -1) {
         return -1;
     }
+    TouchscreenModeScope touchScope;
 
     unsigned char* windowBuffer = windowGetBuffer(win);
     memcpy(windowBuffer, frmImages[FILE_DIALOG_FRM_BACKGROUND].getData(), backgroundWidth * backgroundHeight);

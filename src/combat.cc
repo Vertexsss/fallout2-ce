@@ -1,5 +1,7 @@
 #include "combat.h"
 
+#include "touch.h"
+
 #include <limits.h>
 #include <stdio.h>
 #include <string.h>
@@ -5705,6 +5707,9 @@ static int calledShotSelectHitLocation(Object* critter, HitLocation* hitLocation
     }
 
     _gmouse_disable(0);
+    // Body-part buttons must answer taps under the finger (world = trackpad).
+    TouchscreenModeScope touchScope;
+
     gameMouseSetCursor(MOUSE_CURSOR_ARROW);
 
     int eventCode;

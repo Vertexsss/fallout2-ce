@@ -4471,16 +4471,15 @@ static void inventoryWindowOpenContextMenu(int keyCode, int inventoryWindowType)
     rect.left = x - inventoryWindowX - cursorData->width / 2 + offsetX;
     rect.top = y - inventoryWindowY - cursorData->height + 1 + offsetY;
 #if __APPLE__ && TARGET_OS_IOS
-    // Touch: a menu centered under the finger is hidden by the finger. Put
-    // it beside the finger - a full menu width to the left when there is
-    // room, otherwise to the right.
+    // Touch: a menu centered under the finger is hidden by the finger and
+    // the hand behind it. Right-handed holding covers the area to the right,
+    // so the menu goes a full width to the LEFT. In the rightmost quarter of
+    // the screen the item is held with the other hand, which covers the
+    // left instead - there the menu goes to the RIGHT.
     {
-        int shiftedLeft = rect.left - cursorData->width;
-        if (shiftedLeft >= 0) {
-            rect.left = shiftedLeft;
-        } else {
-            rect.left = std::min(rect.left + cursorData->width, windowWidth - cursorData->width);
-        }
+        bool rightQuarter = x >= screenGetWidth() * 3 / 4;
+        int shifted = rightQuarter ? rect.left + cursorData->width : rect.left - cursorData->width;
+        rect.left = std::clamp(shifted, 0, std::max(0, windowWidth - cursorData->width));
     }
 #endif
     rect.right = rect.left + cursorData->width - 1;

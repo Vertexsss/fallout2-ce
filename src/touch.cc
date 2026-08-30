@@ -19,7 +19,10 @@ namespace fallout {
 // tap = right click / cursor mode switch).
 #define SECONDARY_TAP_MAXIMUM_DURATION 250
 #define PAN_MINIMUM_MOVEMENT 4
-#define LONG_PRESS_MINIMUM_DURATION 500
+// 300ms: a still finger for that long is deliberate, and every long-press
+// consumer (world action menu, inventory drag, item context menu) adds the
+// engine's own 250ms BUTTON_REPEAT_TIME on top before it reacts.
+#define LONG_PRESS_MINIMUM_DURATION 300
 
 struct TouchLocation {
     int x;

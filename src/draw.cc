@@ -1,5 +1,7 @@
 #include "draw.h"
 
+#include <stdint.h>
+
 #include <algorithm>
 #include <string.h>
 
@@ -155,17 +157,18 @@ void bufferDrawRectShadowed(unsigned char* buf, int pitch, int left, int top, in
 // 0x4D33F0
 void blitBufferToBufferStretch(const unsigned char* src, int srcWidth, int srcHeight, int srcPitch, unsigned char* dest, int destWidth, int destHeight, int destPitch)
 {
-    int stepX = (destWidth << 16) / srcWidth;
-    int stepY = (destHeight << 16) / srcHeight;
-
+    // Exact integer spans: the old 16.16 fixed-point step truncated, so for
+    // non-integer ratios the last destination row/column was never written
+    // and showed whatever the (uninitialized) target buffer held - a garbage
+    // stripe along the edge of scaled splash screens.
     for (int srcY = 0; srcY < srcHeight; srcY += 1) {
-        int startDestY = (srcY * stepY) >> 16;
-        int endDestY = ((srcY + 1) * stepY) >> 16;
+        int startDestY = static_cast<int>((static_cast<int64_t>(srcY) * destHeight) / srcHeight);
+        int endDestY = static_cast<int>((static_cast<int64_t>(srcY + 1) * destHeight) / srcHeight);
 
         const unsigned char* currSrc = src + srcPitch * srcY;
         for (int srcX = 0; srcX < srcWidth; srcX += 1) {
-            int startDestX = (srcX * stepX) >> 16;
-            int endDestX = ((srcX + 1) * stepX) >> 16;
+            int startDestX = static_cast<int>((static_cast<int64_t>(srcX) * destWidth) / srcWidth);
+            int endDestX = static_cast<int>((static_cast<int64_t>(srcX + 1) * destWidth) / srcWidth);
 
             for (int destY = startDestY; destY < endDestY; destY += 1) {
                 unsigned char* currDest = dest + destPitch * destY + startDestX;
@@ -182,17 +185,15 @@ void blitBufferToBufferStretch(const unsigned char* src, int srcWidth, int srcHe
 // 0x4D3560
 void blitBufferToBufferStretchTrans(const unsigned char* src, int srcWidth, int srcHeight, int srcPitch, unsigned char* dest, int destWidth, int destHeight, int destPitch)
 {
-    int stepX = (destWidth << 16) / srcWidth;
-    int stepY = (destHeight << 16) / srcHeight;
-
+    // Same exact-span math as blitBufferToBufferStretch.
     for (int srcY = 0; srcY < srcHeight; srcY += 1) {
-        int startDestY = (srcY * stepY) >> 16;
-        int endDestY = ((srcY + 1) * stepY) >> 16;
+        int startDestY = static_cast<int>((static_cast<int64_t>(srcY) * destHeight) / srcHeight);
+        int endDestY = static_cast<int>((static_cast<int64_t>(srcY + 1) * destHeight) / srcHeight);
 
         const unsigned char* currSrc = src + srcPitch * srcY;
         for (int srcX = 0; srcX < srcWidth; srcX += 1) {
-            int startDestX = (srcX * stepX) >> 16;
-            int endDestX = ((srcX + 1) * stepX) >> 16;
+            int startDestX = static_cast<int>((static_cast<int64_t>(srcX) * destWidth) / srcWidth);
+            int endDestX = static_cast<int>((static_cast<int64_t>(srcX + 1) * destWidth) / srcWidth);
 
             if (*currSrc != 0) {
                 for (int destY = startDestY; destY < endDestY; destY += 1) {

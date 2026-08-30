@@ -4457,9 +4457,16 @@ static void inventoryWindowOpenContextMenu(int keyCode, int inventoryWindowType)
     int inventoryWindowX = windowRect.left;
     int inventoryWindowY = windowRect.top;
 
+#if __APPLE__ && TARGET_OS_IOS
+    // Same hand-aware placement as the world action menu.
+    const bool handAwareMenu = true;
+#else
+    const bool handAwareMenu = false;
+#endif
     if (gameMouseRenderActionMenuItems(x, y, actionMenuItems, actionMenuItemsLength,
             windowWidth + inventoryWindowX,
-            windowHeight + inventoryWindowY)
+            windowHeight + inventoryWindowY,
+            handAwareMenu)
         == -1) {
         inventorySetCursor(INVENTORY_WINDOW_CURSOR_ARROW);
         return;
@@ -4474,25 +4481,6 @@ static void inventoryWindowOpenContextMenu(int keyCode, int inventoryWindowType)
     Rect rect;
     rect.left = x - inventoryWindowX - cursorData->width / 2 + offsetX;
     rect.top = y - inventoryWindowY - cursorData->height + 1 + offsetY;
-#if __APPLE__ && TARGET_OS_IOS
-    // Touch: a menu centered under the finger is hidden by the finger and
-    // the hand behind it. Right-handed holding covers the area to the right,
-    // so the menu goes a full width to the LEFT. In the rightmost quarter of
-    // the screen the item is held with the other hand, which covers the
-    // left instead - there the menu goes to the RIGHT.
-    {
-        bool rightQuarter = x >= screenGetWidth() * 3 / 4;
-        int shiftedRight = rect.left + cursorData->width;
-        int shiftedLeft = rect.left - cursorData->width;
-        // Rightward placement only when it actually fits inside the window;
-        // clamping it back would put the menu under the finger again.
-        if (rightQuarter && shiftedRight + cursorData->width <= windowWidth) {
-            rect.left = shiftedRight;
-        } else {
-            rect.left = std::max(shiftedLeft, 0);
-        }
-    }
-#endif
     rect.right = rect.left + cursorData->width - 1;
     rect.bottom = rect.top + cursorData->height - 1;
 

@@ -1995,7 +1995,7 @@ int gameMouseRenderActionMenuItems(int x, int y, const int* menuItems, int menuI
     bool fitsLeft = x - menuItemWidth >= 0;
     bool placeRight = fitsRight;
     if (handAware) {
-        bool wantRight = x >= width * 3 / 4;
+        bool wantRight = x >= screenGetWidth() * 3 / 4;
         if (wantRight && fitsRight) {
             placeRight = true;
         } else if (!wantRight && fitsLeft) {

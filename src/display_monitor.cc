@@ -1,5 +1,11 @@
 #include "display_monitor.h"
 
+#include <math.h>
+#include <algorithm>
+#include <vector>
+#include "fps_limiter.h"
+#include <SDL.h>
+
 #include <string.h>
 
 #include <fstream>
@@ -42,6 +48,10 @@ namespace fallout {
 
 static void display_clear();
 static void displayMonitorRefresh();
+static void displayMonitorSetScrollPixels(int scrollPx);
+static void displayMonitorSnapToLine();
+static void displayMonitorTouchUpdate();
+static int displayMonitorMaxScrollPixels();
 static void displayMonitorScrollUpOnMouseDown(int btn, int keyCode);
 static void displayMonitorScrollDownOnMouseDown(int btn, int keyCode);
 static void displayMonitorScrollUpOnMouseEnter(int btn, int keyCode);
@@ -76,6 +86,15 @@ static unsigned char* gDisplayMonitorBackgroundFrmData;
 
 // 0x56FB40 max_disp
 static int _max_disp;
+
+// Touch scrolling: position in pixels back into history (0 = newest lines
+// at the bottom), plus inertia state. The vanilla up/down arrows move it a
+// whole line at a time; a finger moves it per pixel.
+static int gDisplayMonitorScrollPx = 0;
+static double gDisplayMonitorFlingVy = 0.0;
+static double gDisplayMonitorFlingCarry = 0.0;
+static unsigned int gDisplayMonitorFlingTicks = 0;
+static bool gDisplayMonitorTouchDragging = false;
 
 // 0x56FB44 display_enabled
 static bool gDisplayMonitorEnabled;
@@ -113,6 +132,10 @@ int displayMonitorInit()
         fontSetCurrent(DISPLAY_MONITOR_FONT);
 
         gDisplayMonitorLinesCapacity = DISPLAY_MONITOR_LINES_CAPACITY;
+        gDisplayMonitorScrollPx = 0;
+        gDisplayMonitorFlingVy = 0.0;
+        gDisplayMonitorTouchDragging = false;
+        tickersAdd(displayMonitorTouchUpdate);
         _max_disp = DISPLAY_MONITOR_HEIGHT / fontGetLineHeight();
         _disp_start = 0;
         _disp_curr = 0;
@@ -220,6 +243,7 @@ int displayMonitorReset()
 // 0x43184C display_exit
 void displayMonitorExit()
 {
+    tickersRemove(displayMonitorTouchUpdate);
     if (gDisplayMonitorInitialized) {
         // SFALL
         consoleFileExit();
@@ -280,6 +304,11 @@ void displayMonitorAddMessage(const char* str)
 
             if (splitPos == nullptr) {
                 fontSetCurrent(oldFont);
+                if (gDisplayMonitorTouchDragging || gDisplayMonitorFlingVy != 0.0) {
+                    gDisplayMonitorScrollPx = std::min(gDisplayMonitorScrollPx + fontGetLineHeight(), displayMonitorMaxScrollPixels());
+                } else {
+                    gDisplayMonitorScrollPx = 0;
+                }
                 _disp_curr = _disp_start;
                 displayMonitorRefresh();
                 return;
@@ -321,6 +350,13 @@ void displayMonitorAddMessage(const char* str)
     _disp_start = (_disp_start + 1) % gDisplayMonitorLinesCapacity;
 
     fontSetCurrent(oldFont);
+    if (gDisplayMonitorTouchDragging || gDisplayMonitorFlingVy != 0.0) {
+        // The player is scrolling the log right now - keep what they look at
+        // (the ring shifted by one line under them).
+        gDisplayMonitorScrollPx = std::min(gDisplayMonitorScrollPx + fontGetLineHeight(), displayMonitorMaxScrollPixels());
+    } else {
+        gDisplayMonitorScrollPx = 0;
+    }
     _disp_curr = _disp_start;
     displayMonitorRefresh();
 }
@@ -339,6 +375,8 @@ static void display_clear()
 
         _disp_start = 0;
         _disp_curr = 0;
+        gDisplayMonitorScrollPx = 0;
+        gDisplayMonitorFlingVy = 0.0;
         displayMonitorRefresh();
     }
 }
@@ -366,38 +404,166 @@ static void displayMonitorRefresh()
     int oldFont = fontGetCurrent();
     fontSetCurrent(DISPLAY_MONITOR_FONT);
 
-    for (int index = 0; index < _max_disp; index++) {
-        int stringIndex = (_disp_curr + gDisplayMonitorLinesCapacity + index - _max_disp) % gDisplayMonitorLinesCapacity;
-        fontDrawText(buf + index * _intface_full_width * fontGetLineHeight(), gDisplayMonitorLines[stringIndex], DISPLAY_MONITOR_WIDTH, _intface_full_width, COLOR_GREEN);
+    int lineHeight = fontGetLineHeight();
+    int monitorWidth = DISPLAY_MONITOR_WIDTH;
+    int monitorHeight = DISPLAY_MONITOR_HEIGHT;
+    int line = gDisplayMonitorScrollPx / lineHeight;
+    int pixel = gDisplayMonitorScrollPx % lineHeight;
 
-        // Even though the display monitor is rectangular, it's graphic is not.
-        // To give a feel of depth it's covered by some metal canopy and
-        // considered inclined outwards. This way earlier messages appear a
-        // little bit far from player's perspective. To implement this small
-        // detail the destination buffer is incremented by 1.
-        buf++;
+    // Rows are drawn through a row buffer so a partially visible row (the
+    // pixel offset) can be clipped to the monitor area. Row k of
+    // 0.._max_disp shows the line `line + (_max_disp - k)` back in history;
+    // its top is at pixel + (k - 1) * lineHeight.
+    std::vector<unsigned char> row(static_cast<size_t>(monitorWidth) * lineHeight);
+    for (int k = 0; k <= _max_disp; k++) {
+        int back = line + (_max_disp - k);
+        if (back >= gDisplayMonitorLinesCapacity) {
+            continue;
+        }
+        int stringIndex = (_disp_start + gDisplayMonitorLinesCapacity - 1 - back) % gDisplayMonitorLinesCapacity;
+        int y = pixel + (k - 1) * lineHeight;
+        int visibleTop = std::max(y, 0);
+        int visibleBottom = std::min(y + lineHeight, monitorHeight);
+        if (visibleTop >= visibleBottom) {
+            continue;
+        }
+
+        // Even though the display monitor is rectangular, its graphic is
+        // not: earlier messages sit one pixel further right per row to give
+        // a feel of depth (the original incremented the destination by 1).
+        int depthX = std::max(k - 1, 0);
+
+        // Background under this row (visible part), text drawn over it,
+        // visible part copied back.
+        for (int ry = visibleTop; ry < visibleBottom; ry++) {
+            memcpy(&row[static_cast<size_t>(ry - y) * monitorWidth], buf + ry * _intface_full_width, monitorWidth);
+        }
+        fontDrawText(&row[static_cast<size_t>(0) + depthX], gDisplayMonitorLines[stringIndex], monitorWidth - depthX, monitorWidth, COLOR_GREEN);
+        for (int ry = visibleTop; ry < visibleBottom; ry++) {
+            memcpy(buf + ry * _intface_full_width, &row[static_cast<size_t>(ry - y) * monitorWidth], monitorWidth);
+        }
     }
 
     windowRefreshRect(gInterfaceBarWindow, &gDisplayMonitorRect);
     fontSetCurrent(oldFont);
 }
 
+static int displayMonitorMaxScrollPixels()
+{
+    return std::max(0, (gDisplayMonitorLinesCapacity - _max_disp) * fontGetLineHeight());
+}
+
+static void displayMonitorSetScrollPixels(int scrollPx)
+{
+    scrollPx = std::clamp(scrollPx, 0, displayMonitorMaxScrollPixels());
+    if (scrollPx == gDisplayMonitorScrollPx) {
+        return;
+    }
+    gDisplayMonitorScrollPx = scrollPx;
+    _disp_curr = (_disp_start + gDisplayMonitorLinesCapacity - scrollPx / fontGetLineHeight()) % gDisplayMonitorLinesCapacity;
+    displayMonitorRefresh();
+}
+
+static void displayMonitorSnapToLine()
+{
+    int lineHeight = fontGetLineHeight();
+    int rem = gDisplayMonitorScrollPx % lineHeight;
+    if (rem != 0) {
+        displayMonitorSetScrollPixels(rem < lineHeight / 2 ? gDisplayMonitorScrollPx - rem : gDisplayMonitorScrollPx + lineHeight - rem);
+    }
+}
+
+bool displayMonitorTouchHitTest(int x, int y)
+{
+    if (!gDisplayMonitorInitialized || !gDisplayMonitorEnabled || gInterfaceBarWindow == -1) {
+        return false;
+    }
+    Window* window = windowGetWindow(gInterfaceBarWindow);
+    if (window == nullptr || (window->flags & WINDOW_HIDDEN) != 0) {
+        return false;
+    }
+    Rect r;
+    if (windowGetRect(gInterfaceBarWindow, &r) != 0) {
+        return false;
+    }
+    return x >= r.left + gDisplayMonitorRect.left && x <= r.left + gDisplayMonitorRect.right
+        && y >= r.top + gDisplayMonitorRect.top && y <= r.top + gDisplayMonitorRect.bottom;
+}
+
+void displayMonitorTouchPan(int dyPixels)
+{
+    if (!gDisplayMonitorInitialized) {
+        return;
+    }
+    gDisplayMonitorTouchDragging = true;
+    gDisplayMonitorFlingVy = 0.0;
+    // Content follows the finger: dragging down reveals earlier lines.
+    displayMonitorSetScrollPixels(gDisplayMonitorScrollPx + dyPixels);
+}
+
+void displayMonitorTouchRelease(double fingerVelocityPxPerSec)
+{
+    if (!gDisplayMonitorInitialized) {
+        return;
+    }
+    gDisplayMonitorTouchDragging = false;
+    gDisplayMonitorFlingVy = fingerVelocityPxPerSec;
+    gDisplayMonitorFlingCarry = 0.0;
+    gDisplayMonitorFlingTicks = SDL_GetTicks();
+    if (fabs(gDisplayMonitorFlingVy) < 60.0) {
+        gDisplayMonitorFlingVy = 0.0;
+        displayMonitorSnapToLine();
+    }
+}
+
+static void displayMonitorTouchUpdate()
+{
+    if (gDisplayMonitorFlingVy == 0.0) {
+        return;
+    }
+    unsigned int now = SDL_GetTicks();
+    unsigned int dt = now - gDisplayMonitorFlingTicks;
+    gDisplayMonitorFlingTicks = now;
+    if (dt == 0) {
+        return;
+    }
+    if (dt > 100) {
+        dt = 100;
+    }
+    gDisplayMonitorFlingCarry += gDisplayMonitorFlingVy * dt / 1000.0;
+    int step = static_cast<int>(gDisplayMonitorFlingCarry);
+    gDisplayMonitorFlingCarry -= step;
+    if (step != 0) {
+        int before = gDisplayMonitorScrollPx;
+        displayMonitorSetScrollPixels(before + step);
+        if (gDisplayMonitorScrollPx != before + step) {
+            // Hit the newest or the oldest line.
+            gDisplayMonitorFlingVy = 0.0;
+            displayMonitorSnapToLine();
+            return;
+        }
+    }
+    gDisplayMonitorFlingVy *= exp(-static_cast<double>(dt) / 220.0);
+    if (fabs(gDisplayMonitorFlingVy) < 40.0) {
+        gDisplayMonitorFlingVy = 0.0;
+        displayMonitorSnapToLine();
+        return;
+    }
+    sharedFpsLimiter.notifyActivity();
+}
+
 // 0x431B70 display_scroll_up
 static void displayMonitorScrollUpOnMouseDown(int btn, int keyCode)
 {
-    if ((gDisplayMonitorLinesCapacity + _disp_curr - 1) % gDisplayMonitorLinesCapacity != _disp_start) {
-        _disp_curr = (gDisplayMonitorLinesCapacity + _disp_curr - 1) % gDisplayMonitorLinesCapacity;
-        displayMonitorRefresh();
-    }
+    gDisplayMonitorFlingVy = 0.0;
+    displayMonitorSetScrollPixels(gDisplayMonitorScrollPx + fontGetLineHeight());
 }
 
 // 0x431B9C display_scroll_down
 static void displayMonitorScrollDownOnMouseDown(int btn, int keyCode)
 {
-    if (_disp_curr != _disp_start) {
-        _disp_curr = (_disp_curr + 1) % gDisplayMonitorLinesCapacity;
-        displayMonitorRefresh();
-    }
+    gDisplayMonitorFlingVy = 0.0;
+    displayMonitorSetScrollPixels(gDisplayMonitorScrollPx - fontGetLineHeight());
 }
 
 // 0x431BC8 display_arrow_up

@@ -1,5 +1,9 @@
 #include "worldmap.h"
 
+#include <math.h>
+
+#include "fps_limiter.h"
+
 #include <assert.h>
 #include <ctype.h>
 #include <math.h>
@@ -583,6 +587,9 @@ static void wmPartyInitWalking(int x, int y);
 static bool wmTravelTickDue(unsigned int now);
 static void wmPartyWalkingStep();
 static void wmInterfaceScrollTabsStart(int delta);
+static void wmTouchTabsUpdate();
+static bool gWmActive = false;
+static double gWmTabsFlingVy = 0.0;
 static void wmInterfaceScrollTabsStop();
 static void wmInterfaceScrollTabsUpdate();
 static int wmInterfaceInit();
@@ -3386,6 +3393,13 @@ static int wmWorldMapFunc(int a1)
     // Touch: taps land where the finger is (travel, town list, buttons);
     // two-finger pans scroll the map through the wheel path.
     touch_set_touchscreen_mode(true);
+    gWmActive = true;
+    gWmTabsFlingVy = 0.0;
+#if __APPLE__ && TARGET_OS_IOS
+    // No cursor on the world map: taps land under the finger anyway. The
+    // NONE cursor is a blank frame, not a hidden cursor, so gestures flow.
+    gameMouseSetCursor(MOUSE_CURSOR_NONE);
+#endif
 
     wmMatchWorldPosToArea(wmGenData.worldPosX, wmGenData.worldPosY, &(wmGenData.currentAreaId));
 
@@ -3615,6 +3629,7 @@ static int wmWorldMapFunc(int a1)
 
         // NOTE: Uninline.
         wmInterfaceScrollTabsUpdate();
+        wmTouchTabsUpdate();
 
         if (keyCode == KEY_UPPERCASE_T || keyCode == KEY_LOWERCASE_T) {
             if (!wmGenData.isWalking && wmGenData.currentAreaId != CITY_INVALID) {
@@ -3717,6 +3732,11 @@ static int wmWorldMapFunc(int a1)
 
     wmFadeIn();
 
+    gWmActive = false;
+    gWmTabsFlingVy = 0.0;
+#if __APPLE__ && TARGET_OS_IOS
+    gameMouseSetCursor(MOUSE_CURSOR_ARROW);
+#endif
     touch_set_touchscreen_mode(false);
     return rc;
 }
@@ -4897,6 +4917,109 @@ static void wmPartyWalkingStep()
 }
 
 // 0x4C219C wmInterfaceScrollTabsStart
+// ---- touch scrolling of the town list (pixel-smooth, with inertia) ----
+static double gWmTabsCarry = 0.0;
+static unsigned int gWmTabsLastTicks = 0;
+
+static int wmTabsMaxOffset()
+{
+    return std::max(0, wmGenData.tabsBackgroundFrmImage.getHeight() - (WM_TOWN_LIST_HEIGHT + 52));
+}
+
+// Settle on a whole slot so the quick-destination buttons line up again.
+static void wmTabsSnapToSlot()
+{
+    int rem = wmGenData.tabsOffsetY % WM_TOWN_LIST_SLOT_HEIGHT;
+    if (rem != 0) {
+        wmInterfaceScrollTabsStart(rem < WM_TOWN_LIST_SLOT_HEIGHT / 2 ? -rem : WM_TOWN_LIST_SLOT_HEIGHT - rem);
+    }
+}
+
+bool wmTouchTabsHitTest(int x, int y)
+{
+    if (!gWmActive || wmBkWin == -1) {
+        return false;
+    }
+    Rect r;
+    if (windowGetRect(wmBkWin, &r) != 0) {
+        return false;
+    }
+    return x >= r.left + WM_TOWN_LIST_X && x < r.left + WM_TOWN_LIST_X + WM_TOWN_LIST_WIDTH
+        && y >= r.top + WM_TOWN_LIST_Y && y < r.top + WM_TOWN_LIST_Y + WM_TOWN_LIST_HEIGHT;
+}
+
+void wmTouchTabsPan(int dyPixels)
+{
+    if (!gWmActive) {
+        return;
+    }
+    gWmTabsFlingVy = 0.0;
+    // Cancel a running step animation; the finger owns the list now.
+    wmGenData.tabsScrollingDelta = 0;
+    for (int index = 0; index < WM_TOWN_LIST_VISIBLE_SLOT_COUNT; index++) {
+        buttonEnable(wmTownMapSubButtonIds[index]);
+    }
+    // Content follows the finger: dragging down reveals earlier entries.
+    int target = std::clamp(wmGenData.tabsOffsetY - dyPixels, 0, wmTabsMaxOffset());
+    if (target != wmGenData.tabsOffsetY) {
+        wmGenData.tabsOffsetY = target;
+        wmRefreshInterfaceOverlay(true);
+    }
+}
+
+void wmTouchTabsRelease(double fingerVelocityPxPerSec)
+{
+    if (!gWmActive) {
+        return;
+    }
+    gWmTabsFlingVy = -fingerVelocityPxPerSec;
+    gWmTabsCarry = 0.0;
+    gWmTabsLastTicks = SDL_GetTicks();
+    if (fabs(gWmTabsFlingVy) < 60.0) {
+        gWmTabsFlingVy = 0.0;
+        wmTabsSnapToSlot();
+    }
+}
+
+static void wmTouchTabsUpdate()
+{
+    if (gWmTabsFlingVy == 0.0) {
+        return;
+    }
+    unsigned int now = SDL_GetTicks();
+    unsigned int dt = now - gWmTabsLastTicks;
+    gWmTabsLastTicks = now;
+    if (dt == 0) {
+        return;
+    }
+    if (dt > 100) {
+        dt = 100;
+    }
+    gWmTabsCarry += gWmTabsFlingVy * dt / 1000.0;
+    int step = static_cast<int>(gWmTabsCarry);
+    gWmTabsCarry -= step;
+    if (step != 0) {
+        int target = std::clamp(wmGenData.tabsOffsetY + step, 0, wmTabsMaxOffset());
+        bool hitBound = target != wmGenData.tabsOffsetY + step;
+        if (target != wmGenData.tabsOffsetY) {
+            wmGenData.tabsOffsetY = target;
+            wmRefreshInterfaceOverlay(true);
+        }
+        if (hitBound) {
+            gWmTabsFlingVy = 0.0;
+            wmTabsSnapToSlot();
+            return;
+        }
+    }
+    gWmTabsFlingVy *= exp(-static_cast<double>(dt) / 220.0);
+    if (fabs(gWmTabsFlingVy) < 40.0) {
+        gWmTabsFlingVy = 0.0;
+        wmTabsSnapToSlot();
+        return;
+    }
+    sharedFpsLimiter.notifyActivity();
+}
+
 static void wmInterfaceScrollTabsStart(int delta)
 {
     int tabsScrollMaxOffsetY = std::max(0,
@@ -5514,9 +5637,14 @@ static void wmMouseBkProc()
         }
     }
 
+#if __APPLE__ && TARGET_OS_IOS
+    // Touch: the world map keeps its blank cursor.
+    (void)newMouseCursor;
+#else
     if (oldMouseCursor != newMouseCursor) {
         gameMouseSetCursor(newMouseCursor);
     }
+#endif
 }
 
 // NOTE: Inlined.

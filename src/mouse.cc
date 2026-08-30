@@ -1,6 +1,8 @@
 #include "mouse.h"
 
 #include "camera_follow.h"
+#include "display_monitor.h"
+#include "worldmap.h"
 
 #include <math.h>
 
@@ -463,6 +465,16 @@ static bool handleHudTapThrough(const Gesture& gesture)
 static int gGesturePrevX = 0;
 static int gGesturePrevY = 0;
 
+// Pans captured by a scrollable list (see the kPan handler).
+enum TouchScrollTarget {
+    kTouchScrollNone,
+    kTouchScrollTabs,
+    kTouchScrollMonitor,
+};
+static int gTouchScrollTarget = kTouchScrollNone;
+static double gTouchScrollVy = 0.0;
+static unsigned int gTouchScrollLastTicks = 0;
+
 // Finger travel per one list-scroll wheel tick in touchscreen contexts.
 constexpr int kWheelStepPx = 32;
 static int gWheelAccumX = 0;
@@ -639,6 +651,49 @@ void _mouse_info()
                 prevy = gesture.y;
                 gGesturePrevX = gesture.x;
                 gGesturePrevY = gesture.y;
+            }
+
+            // Pans that start over a scrollable list (world map town list,
+            // the message log) scroll that list pixel by pixel with inertia
+            // instead of moving the cursor or the map.
+            if (gesture.type == kPan) {
+                if (gesture.state == kBegan) {
+                    gTouchScrollTarget = kTouchScrollNone;
+                    if (wmTouchTabsHitTest(gesture.x, gesture.y)) {
+                        gTouchScrollTarget = kTouchScrollTabs;
+                    } else if (displayMonitorTouchHitTest(gesture.x, gesture.y)) {
+                        gTouchScrollTarget = kTouchScrollMonitor;
+                    }
+                    gTouchScrollVy = 0.0;
+                    gTouchScrollLastTicks = SDL_GetTicks();
+                }
+                if (gTouchScrollTarget != kTouchScrollNone) {
+                    unsigned int nowTicks = SDL_GetTicks();
+                    int dy = gesture.y - gGesturePrevY;
+                    unsigned int dt = nowTicks - gTouchScrollLastTicks;
+                    if (dt > 0) {
+                        gTouchScrollVy = 0.7 * gTouchScrollVy + 0.3 * (1000.0 * dy / dt);
+                        gTouchScrollLastTicks = nowTicks;
+                    }
+                    if (gTouchScrollTarget == kTouchScrollTabs) {
+                        wmTouchTabsPan(dy);
+                    } else {
+                        displayMonitorTouchPan(dy);
+                    }
+                    gGesturePrevX = gesture.x;
+                    gGesturePrevY = gesture.y;
+                    prevx = gesture.x;
+                    prevy = gesture.y;
+                    if (gesture.state == kEnded) {
+                        if (gTouchScrollTarget == kTouchScrollTabs) {
+                            wmTouchTabsRelease(gTouchScrollVy);
+                        } else {
+                            displayMonitorTouchRelease(gTouchScrollVy);
+                        }
+                        gTouchScrollTarget = kTouchScrollNone;
+                    }
+                    break;
+                }
             }
             if (!mouseDeviceUsesRelativeMode()) {
                 prevx = 0;

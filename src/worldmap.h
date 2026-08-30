@@ -407,6 +407,13 @@ void wmSetTownTitle(City areaIdx, const char* title);
 void wmRemoveTownNames(bool state);
 int worldmapGetWindow();
 
+// Touch scrolling of the town list (see mouse.cc): true if the screen point
+// is inside the list while the world map is up; pan by finger delta; release
+// with the finger's velocity (px/s, positive = down) to start the inertia.
+bool wmTouchTabsHitTest(int x, int y);
+void wmTouchTabsPan(int dyPixels);
+void wmTouchTabsRelease(double fingerVelocityPxPerSec);
+
 } // namespace fallout
 
 #endif /* WORLD_MAP_H */

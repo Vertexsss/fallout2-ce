@@ -3181,6 +3181,9 @@ void _gdialog_scroll_subwin(int windowIdx, bool scrollUp, const unsigned char* w
 
         for (; strips >= 0; strips--) {
             sharedFpsLimiter.mark();
+            // The slide is watched motion: without this the idle limiter adds
+            // up to 66ms on top of each strip's own delay - visible jerks.
+            sharedFpsLimiter.notifyActivity();
 
             soundContinueAll();
             blitBufferToBuffer(windowFrmData,
@@ -3208,6 +3211,7 @@ void _gdialog_scroll_subwin(int windowIdx, bool scrollUp, const unsigned char* w
         int bgRowsRead = 0;
         for (int top = 0; top < windowHeight;) {
             sharedFpsLimiter.mark();
+            sharedFpsLimiter.notifyActivity();
 
             soundContinueAll();
 

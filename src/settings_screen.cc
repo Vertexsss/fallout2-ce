@@ -11,6 +11,7 @@
 #include "svga.h"
 #include "text_font.h"
 #include "tile_hires_stencil.h"
+#include "touch.h"
 #include "window_manager.h"
 
 namespace fallout {
@@ -328,6 +329,10 @@ void settingsScreenShow()
     int oldFont = fontGetCurrent();
     fontSetCurrent(101);
 
+    // Like the other UI screens: taps land where the finger is, not where
+    // the trackpad-style world cursor happens to be.
+    touch_set_touchscreen_mode(true);
+
     // invisible hotspot buttons: whole row cycles the value, footer closes
     for (int i = 0; i < kRowCount; i++) {
         buttonCreate(win, 2, kTitleHeight + i * kRowHeight + 1, kWindowWidth - 4, kRowHeight - 2,
@@ -368,6 +373,7 @@ void settingsScreenShow()
 
     settingsSave();
 
+    touch_set_touchscreen_mode(false);
     fontSetCurrent(oldFont);
     windowDestroy(win);
 }

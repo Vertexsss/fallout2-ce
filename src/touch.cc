@@ -250,10 +250,11 @@ void touch_process_gesture()
                     touches[secondary].startLocation = touches[secondary].currentLocation;
                     touches[secondary].startTimestamp = now;
                 } else {
-                    currentGesture.state = kChanged;
-                    currentGesture.x = touches[primary].currentLocation.x;
-                    currentGesture.y = touches[primary].currentLocation.y;
-                    gestureEventsQueue.push(currentGesture);
+                    // Undecided: the extra finger is either a secondary tap
+                    // or the start of a two-finger pan. Freeze the primary's
+                    // updates meanwhile - relaying its motion dragged the
+                    // trackpad cursor at every staggered two-finger pan
+                    // start, drifting it toward the screen edges over time.
                 }
             } else if (currentGesture.numberOfTouches == 1 && activeCount == 1 && endedCount == 1) {
                 // The extra finger lifted while the primary stayed down.

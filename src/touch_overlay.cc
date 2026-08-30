@@ -5,6 +5,10 @@
 
 #include <SDL.h>
 
+#include <algorithm>
+#include "art.h"
+#include "draw.h"
+#include "game_mouse.h"
 #include "color.h"
 #include "input.h"
 #include "interface.h"
@@ -39,7 +43,7 @@ bool gShown = false;
 bool gHighlightActive = false;
 
 // Edge-of-screen arrow pointing toward the off-screen player.
-constexpr int kPointerSize = 30;
+int gPointerSize = 30;
 constexpr int kPointerMargin = 44;
 int gPointerWindow = -1;
 int gPointerX = 0;
@@ -111,6 +115,22 @@ bool pointInButton(const OverlayButton& button, int x, int y)
         && y >= button.y && y < button.y + kButtonHeight;
 }
 
+// Direction index (0 = east, clockwise on screen) -> scroll cursor.
+int pointerCursorForDir(int dir)
+{
+    static const int kCursors[8] = {
+        MOUSE_CURSOR_SCROLL_E,
+        MOUSE_CURSOR_SCROLL_SE,
+        MOUSE_CURSOR_SCROLL_S,
+        MOUSE_CURSOR_SCROLL_SW,
+        MOUSE_CURSOR_SCROLL_W,
+        MOUSE_CURSOR_SCROLL_NW,
+        MOUSE_CURSOR_SCROLL_N,
+        MOUSE_CURSOR_SCROLL_NE,
+    };
+    return kCursors[dir & 7];
+}
+
 void paintPointer(int dir)
 {
     if (gPointerWindow == -1) {
@@ -122,17 +142,40 @@ void paintPointer(int dir)
         return;
     }
 
-    memset(buffer, 0, static_cast<size_t>(kPointerSize) * kPointerSize);
+    memset(buffer, 0, static_cast<size_t>(gPointerSize) * gPointerSize);
 
-    // Filled triangle pointing along one of 8 directions.
+    // The engine's own directional scroll cursors (the arrows the world
+    // map and the map edges show) - the same arrow art, drawn by the
+    // original artists for all 8 directions - centered in the window.
+    int cursorFid = gameMouseGetCursorFid(pointerCursorForDir(dir));
+    if (cursorFid != -1) {
+        CacheEntry* handle;
+        Art* art = artLock(cursorFid, &handle);
+        if (art != nullptr) {
+            int w = artGetWidth(art, 0, ROTATION_NE);
+            int h = artGetHeight(art, 0, ROTATION_NE);
+            unsigned char* data = artGetFrameData(art, 0, ROTATION_NE);
+            if (data != nullptr && w > 0 && h > 0 && w <= gPointerSize && h <= gPointerSize) {
+                int x0 = (gPointerSize - w) / 2;
+                int y0 = (gPointerSize - h) / 2;
+                blitBufferToBufferTrans(data, w, h, w, buffer + y0 * gPointerSize + x0, gPointerSize);
+                artUnlock(handle);
+                windowRefresh(gPointerWindow);
+                return;
+            }
+            artUnlock(handle);
+        }
+    }
+
+    // Fallback: filled triangle pointing along one of 8 directions.
     static const int kDirX[8] = { 1, 1, 0, -1, -1, -1, 0, 1 };
     static const int kDirY[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
 
     double len = (kDirX[dir] != 0 && kDirY[dir] != 0) ? 0.7071 : 1.0;
     double dx = kDirX[dir] * len;
     double dy = kDirY[dir] * len;
-    double cx = kPointerSize / 2.0;
-    double cy = kPointerSize / 2.0;
+    double cx = gPointerSize / 2.0;
+    double cy = gPointerSize / 2.0;
 
     double tipX = cx + dx * 12.0;
     double tipY = cy + dy * 12.0;
@@ -147,15 +190,15 @@ void paintPointer(int dir)
 
     const Color fill = intensityColorTable[COLOR_LIGHT_YELLOW][48];
 
-    for (int y = 0; y < kPointerSize; y++) {
-        for (int x = 0; x < kPointerSize; x++) {
+    for (int y = 0; y < gPointerSize; y++) {
+        for (int x = 0; x < gPointerSize; x++) {
             double d1 = (x - tipX) * (aY - tipY) - (y - tipY) * (aX - tipX);
             double d2 = (x - aX) * (bY - aY) - (y - aY) * (bX - aX);
             double d3 = (x - bX) * (tipY - bY) - (y - bY) * (tipX - bX);
             bool neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
             bool pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
             if (!(neg && pos)) {
-                buffer[y * kPointerSize + x] = fill;
+                buffer[y * gPointerSize + x] = fill;
             }
         }
     }
@@ -198,9 +241,9 @@ void pointerTick()
     int px = dudeX;
     int py = dudeY;
     if (px < kPointerMargin) px = kPointerMargin;
-    if (px > viewW - kPointerMargin - kPointerSize) px = viewW - kPointerMargin - kPointerSize;
+    if (px > viewW - kPointerMargin - gPointerSize) px = viewW - kPointerMargin - gPointerSize;
     if (py < kPointerMargin) py = kPointerMargin;
-    if (py > viewH - kPointerMargin - kPointerSize) py = viewH - kPointerMargin - kPointerSize;
+    if (py > viewH - kPointerMargin - gPointerSize) py = viewH - kPointerMargin - gPointerSize;
 
     double angle = atan2(static_cast<double>(dudeY - (viewH / 2)), static_cast<double>(dudeX - (viewW / 2)));
     int dir = static_cast<int>(floor(angle / (3.14159265 / 4.0) + 0.5)) & 7;
@@ -299,10 +342,22 @@ void touchOverlayInit()
     createButton(gCfgButton, screenW - kButtonWidth - kMargin, 36, "CFG", KEY_F11);
 
 
-    gPointerWindow = windowCreate(0, 0, kPointerSize, kPointerSize, COLOR_BLACK,
+    // Size the pointer window for the largest of the 8 scroll cursors.
+    gPointerSize = 30;
+    for (int dir = 0; dir < 8; dir++) {
+        int fid = gameMouseGetCursorFid(pointerCursorForDir(dir));
+        CacheEntry* handle;
+        Art* art = fid != -1 ? artLock(fid, &handle) : nullptr;
+        if (art != nullptr) {
+            gPointerSize = std::max(gPointerSize, std::max(artGetWidth(art, 0, ROTATION_NE), artGetHeight(art, 0, ROTATION_NE)) + 2);
+            artUnlock(handle);
+        }
+    }
+
+    gPointerWindow = windowCreate(0, 0, gPointerSize, gPointerSize, COLOR_BLACK,
         WINDOW_HIDDEN | WINDOW_TRANSPARENT | WINDOW_MOVE_ON_TOP);
     if (gPointerWindow != -1) {
-        buttonCreate(gPointerWindow, 0, 0, kPointerSize, kPointerSize, -1, -1, -1, kTouchOverlayCenterKeyCode);
+        buttonCreate(gPointerWindow, 0, 0, gPointerSize, gPointerSize, -1, -1, -1, kTouchOverlayCenterKeyCode);
     }
     gPointerShown = false;
 
@@ -368,8 +423,8 @@ bool touchOverlayContainsPoint(int x, int y)
         return true;
     }
     return gPointerShown
-        && x >= gPointerX && x < gPointerX + kPointerSize
-        && y >= gPointerY && y < gPointerY + kPointerSize;
+        && x >= gPointerX && x < gPointerX + gPointerSize
+        && y >= gPointerY && y < gPointerY + gPointerSize;
 }
 
 bool touchOverlayHandleTap(int x, int y)
@@ -387,8 +442,8 @@ bool touchOverlayHandleTap(int x, int y)
 
 
     if (gPointerShown
-        && x >= gPointerX && x < gPointerX + kPointerSize
-        && y >= gPointerY && y < gPointerY + kPointerSize) {
+        && x >= gPointerX && x < gPointerX + gPointerSize
+        && y >= gPointerY && y < gPointerY + gPointerSize) {
         touchOverlayCenterOnDude();
         return true;
     }

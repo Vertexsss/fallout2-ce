@@ -104,6 +104,14 @@ static const int gGameMouseCursorFrmIds[MOUSE_CURSOR_TYPE_COUNT] = {
     295,
 };
 
+int gameMouseGetCursorFid(int cursor)
+{
+    if (cursor < 0 || cursor >= MOUSE_CURSOR_TYPE_COUNT) {
+        return -1;
+    }
+    return buildFid(OBJ_TYPE_INTERFACE, gGameMouseCursorFrmIds[cursor]);
+}
+
 // 0x518C80 gmouse_3d_initialized
 static bool gGameMouseObjectsInitialized = false;
 

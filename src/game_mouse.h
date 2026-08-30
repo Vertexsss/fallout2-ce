@@ -88,6 +88,10 @@ void gameMouseRefresh();
 void _gmouse_handle_event(int mouseX, int mouseY, int mouseState);
 int gameMouseSetCursor(int cursor);
 int gameMouseGetCursor();
+
+// Art fid of a cursor's frame (the touch overlay draws the directional
+// scroll cursors as the off-screen player pointer).
+int gameMouseGetCursorFid(int cursor);
 Object* gameMouseGetObjectUnderCursor(ObjectType objectType, bool includeDude, int elevation);
 void gmouse_set_mapper_mode(int mode);
 void gameMouseSetMode(int mode);

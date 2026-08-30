@@ -63,6 +63,11 @@ static void audioEngineMixin(void* userData, Uint8* stream, int length)
 
     for (int index = 0; index < AUDIO_ENGINE_SOUND_BUFFERS; index++) {
         AudioEngineSoundBuffer* soundBuffer = &(gAudioEngineSoundBuffers[index]);
+        // Cheap unlocked pre-check (re-checked under the lock): idle
+        // buffers cost no mutex round trip per callback.
+        if (!soundBuffer->active || !soundBuffer->playing) {
+            continue;
+        }
         std::lock_guard<std::recursive_mutex> lock(soundBuffer->mutex);
 
         if (soundBuffer->active && soundBuffer->playing) {

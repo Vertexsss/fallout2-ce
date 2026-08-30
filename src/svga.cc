@@ -727,6 +727,14 @@ void renderPresent()
         return;
     }
 
+    // Palette fades and window drags present without going through
+    // inputGetInput, so they would keep touching the GPU while the app is
+    // backgrounded (iOS terminates for that). Keep the marks - the first
+    // present after resume repaints everything that changed.
+    if (!gProgramIsActive) {
+        return;
+    }
+
     // Convert and upload every dirty rect separately - each exactly once per
     // presented frame, with the palette as it stands now.
     bool uploadFailed = false;

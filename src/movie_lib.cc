@@ -614,7 +614,9 @@ static int syncWait()
     if (sync_active) {
         while ((sync_time + 1000 * compat_timeGetTime()) < 0) {
             late = 1;
-            delay_ms(-(sync_time + 1000 * compat_timeGetTime()) / 1000 - 3);
+            int ms = -(sync_time + 1000 * compat_timeGetTime()) / 1000 - 3;
+            // The final few ms used to be a no-op delay (spin).
+            delay_ms(ms > 0 ? ms : 1);
         }
         sync_time += sync_wait_quanta;
     }
@@ -869,6 +871,7 @@ static void MVE_syncSync()
 {
     if (sync_active) {
         while (sync_time + 1000 * compat_timeGetTime() < 0) {
+            delay_ms(1);
         }
     }
 }
@@ -1012,9 +1015,9 @@ static void _MVE_sndSync()
         }
         v0 = true;
 
-#if defined(__EMSCRIPTEN__)
+        // Polling the playback position - sleep between polls on every
+        // platform (was Emscripten-only: a pure spin elsewhere).
         delay_ms(1);
-#endif
     }
 
     if (dword_6B3660 != dword_6B3AE4) {
@@ -1040,7 +1043,8 @@ static int syncWaitLevel(int wait)
     do {
         diff = deadline + 1000 * compat_timeGetTime();
         if (diff < 0) {
-            delay_ms(-diff / 1000 - 3);
+            int ms = -diff / 1000 - 3;
+            delay_ms(ms > 0 ? ms : 1);
         }
         diff = deadline + 1000 * compat_timeGetTime();
     } while (diff < 0);

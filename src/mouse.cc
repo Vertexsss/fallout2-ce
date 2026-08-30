@@ -811,6 +811,10 @@ void _mouse_info()
     if (gFlingActive) {
         unsigned int nowTicks = SDL_GetTicks();
         unsigned int flingDt = nowTicks - gFlingLastTicks;
+        if (flingDt > 100) {
+            // A suspension mid-coast must not become one giant step.
+            flingDt = 100;
+        }
         if (flingDt > 0) {
             gFlingLastTicks = nowTicks;
 

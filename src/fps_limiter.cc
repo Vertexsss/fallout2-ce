@@ -113,6 +113,12 @@ void FpsLimiter::throttle()
             ? 50
             : ((deepIdle || now - _lastActivityTicks > 5000) ? 33 : 16);
         const unsigned int remaining = budget - elapsed;
+        if (remaining > 2 * chunkMs) {
+            // Only the tail of the budget needs fine-grained polling for
+            // input latency; the bulk is one nap (halves the wakeups).
+            SDL_Delay(remaining - chunkMs);
+            continue;
+        }
         SDL_Delay(remaining < chunkMs ? remaining : chunkMs);
     }
 }

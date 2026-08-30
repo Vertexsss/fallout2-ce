@@ -1,4 +1,6 @@
 #include "input.h"
+#include "art.h"
+#include "fps_limiter.h"
 
 #include <SDL.h>
 #include <lodepng.h>
@@ -149,8 +151,19 @@ static void inputHandleProgramActivationChange(bool isActive)
     // Cmd-tab on macOS can leave modifier/key repeat state and mouse mode out
     // of sync with SDL's actual app activation state. Drop queued input on
     // both transitions and reapply the desired mouse mode on return.
+    //
+    // Only INPUT events are flushed: a blanket SDL_PollEvent drain here also
+    // ate SDL_RENDER_TARGETS_RESET / SIZE_CHANGED queued behind the focus
+    // event (stale texture after resume) and the FINGERUP of a finger held
+    // across the transition (a phantom finger stuck forever).
     keyboardReset();
-    inputEventQueueReset();
+    gInputEventQueueReadIndex = -1;
+    gInputEventQueueWriteIndex = 0;
+    SDL_FlushEvents(SDL_KEYDOWN, SDL_TEXTINPUT);
+    SDL_FlushEvents(SDL_MOUSEMOTION, SDL_MOUSEWHEEL);
+    SDL_FlushEvents(SDL_FINGERDOWN, SDL_FINGERMOTION);
+    sfall_kb_clear_synthetic_key_events();
+    touch_reset();
 
     if (isActive) {
         mouseDeviceInitMode();
@@ -635,7 +648,13 @@ void inputPauseForTocks(unsigned int delay)
     // NOTE: Uninline.
     unsigned int diff = getTicksBetween(end, start);
     while (diff < delay) {
+        // Originally a pure spin (100% of a core with a frozen screen for
+        // the whole pause). Run the background processes at frame rate and
+        // present what they drew.
+        sharedFpsLimiter.mark();
         _process_bk();
+        renderPresent();
+        sharedFpsLimiter.throttle();
 
         end = getTicks();
 
@@ -1086,12 +1105,26 @@ void _GNW95_process_message()
             }
             break;
         case SDL_RENDER_TARGETS_RESET:
-        case SDL_RENDER_DEVICE_RESET:
             // The GPU texture contents were lost (iOS backgrounding does this
             // to Metal textures). With dirty-rect uploads anything not
             // re-marked would stay stale forever - ghost cursor images after
             // idle/lock. Re-upload the whole frame.
             renderMarkDirtyAmbient(nullptr);
+            break;
+        case SDL_RENDER_DEVICE_RESET:
+            // The device itself is gone - every texture is invalid, a
+            // re-mark alone would retry failing uploads forever. Rebuild.
+            handleWindowSizeChanged();
+            break;
+        case SDL_APP_WILLENTERBACKGROUND:
+            inputHandleProgramActivationChange(false);
+            break;
+        case SDL_APP_DIDENTERFOREGROUND:
+            inputHandleProgramActivationChange(true);
+            break;
+        case SDL_APP_LOWMEMORY:
+            // Memory pressure: drop unlocked art before jetsam drops us.
+            artCacheFlush();
             break;
         case SDL_QUIT:
             exit(EXIT_SUCCESS);

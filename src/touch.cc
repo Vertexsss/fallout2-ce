@@ -1,5 +1,7 @@
 #include "touch.h"
 
+#include <string.h>
+
 #include <algorithm>
 #include <queue>
 
@@ -56,11 +58,24 @@ static bool gUsePanMode = false;
 static int find_touch(SDL_FingerID fingerId)
 {
     for (int index = 0; index < MAX_TOUCHES; index++) {
-        if (touches[index].fingerId == fingerId) {
+        if (touches[index].used && touches[index].fingerId == fingerId) {
             return index;
         }
     }
     return -1;
+}
+
+void touch_reset()
+{
+    // Fingers that were down when the app resigned active never get their
+    // FINGERUP (it is queued behind FOCUS_LOST and dropped with the rest of
+    // the backlog). Forget them: a stale "held" finger would otherwise
+    // become an eternal long press and swallow every new touch.
+    memset(touches, 0, sizeof(touches));
+    currentGesture = Gesture();
+    currentGesture.type = kUnrecognized;
+    gSuppressPrimaryTap = false;
+    std::queue<Gesture>().swap(gestureEventsQueue);
 }
 
 static int find_unused_touch_index()

@@ -181,8 +181,8 @@ void creditsOpen(const char* filePath, int backgroundFid, bool useReversedStyle)
 
                                         src += windowWidth;
 
-                                        sharedFpsLimiter.throttle();
                                         renderPresent();
+                                        sharedFpsLimiter.throttle();
                                     }
 
                                     if (stop) {
@@ -221,8 +221,8 @@ void creditsOpen(const char* filePath, int backgroundFid, bool useReversedStyle)
 
                                         windowRefresh(window);
 
-                                        sharedFpsLimiter.throttle();
                                         renderPresent();
+                                        sharedFpsLimiter.throttle();
                                     }
                                 }
 

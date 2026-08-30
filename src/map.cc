@@ -1,5 +1,7 @@
 #include "map.h"
 
+#include "camera_follow.h"
+
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -317,6 +319,7 @@ void mapInit()
 
     mapNewMap();
     tickersAdd(gameMouseRefresh);
+    tickersAdd(cameraFollowTick);
     _gmouse_disable(0);
     windowShow(gIsoWindow);
 
@@ -329,6 +332,7 @@ void mapExit()
     windowHide(gIsoWindow);
     gameMouseSetCursor(MOUSE_CURSOR_ARROW);
     tickersRemove(gameMouseRefresh);
+    tickersRemove(cameraFollowTick);
 
     messageListRepositorySetStandardMessageList(STANDARD_MESSAGE_LIST_MAP, nullptr);
     if (!messageListFree(&gMapMessageList)) {

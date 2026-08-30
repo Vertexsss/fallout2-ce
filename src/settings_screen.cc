@@ -164,6 +164,16 @@ void dudePointerNext()
     settings.ui.dude_pointer = !settings.ui.dude_pointer;
 }
 
+const char* followHeroText()
+{
+    return settings.ui.follow_hero ? "ON" : "OFF";
+}
+
+void followHeroNext()
+{
+    settings.ui.follow_hero = !settings.ui.follow_hero;
+}
+
 const char* edgeScrollText()
 {
     return settings.ui.edge_scroll ? "ON" : "OFF";
@@ -230,6 +240,7 @@ constexpr Row kRows[] = {
     { "TOUCH TOOLBAR", toolbarText, toolbarNext },
     { "FREE CAMERA", freeScrollText, freeScrollNext },
     { "EDGE SCROLL", edgeScrollText, edgeScrollNext },
+    { "FOLLOW HERO", followHeroText, followHeroNext },
     { "MAP STENCIL", stencilText, stencilNext },
     { "PLAYER ARROW", dudePointerText, dudePointerNext },
     { "UI SCALE", uiScaleText, uiScaleNext },

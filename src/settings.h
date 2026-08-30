@@ -68,6 +68,11 @@ struct UISettings {
     // gameMouseHandleScrolling), so a parked cursor cannot drag the camera.
     bool edge_scroll = true;
 
+    // Smart camera follow: a walk that starts with the player inside the
+    // central zone of the view keeps them centered until it ends; a walk
+    // started off-center leaves the camera alone.
+    bool follow_hero = true;
+
     // Edge-of-screen arrow pointing toward the player when the view has been
     // scrolled away; tapping it re-centers on the player.
     bool dude_pointer = true;

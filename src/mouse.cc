@@ -1,5 +1,7 @@
 #include "mouse.h"
 
+#include "camera_follow.h"
+
 #include <math.h>
 
 #if __APPLE__
@@ -675,6 +677,8 @@ void _mouse_info()
                         gFlingVX = 0.0;
                         gFlingVY = 0.0;
                         gPanLastTicks = nowTicks;
+                        // The player took the camera - stop following.
+                        cameraFollowCancel();
                     }
 
                     int dxPix = gGesturePrevX - gesture.x;

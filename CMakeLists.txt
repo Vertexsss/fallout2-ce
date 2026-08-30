@@ -286,6 +286,7 @@ set(FALLOUT_PLATFORM_SOURCES
     "src/preferences.h"
     "src/settings.cc"
     "src/settings.h"
+    "src/camera_follow.cc"
     "src/settings_screen.cc"
     "src/settings_screen.h"
     "src/touch_overlay.cc"

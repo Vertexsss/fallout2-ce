@@ -1,5 +1,7 @@
 #include "animation.h"
 
+#include "camera_follow.h"
+
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -674,6 +676,8 @@ int animationIsBusy(Object* a1)
 // 0x413F5C
 int animationRegisterMoveToObject(Object* owner, Object* destination, int actionPoints, int delay)
 {
+    cameraFollowOnWalkRegistered(owner);
+
     if (_check_registry(owner) == -1 || actionPoints == 0) {
         _anim_cleanup();
         return -1;
@@ -707,6 +711,8 @@ int animationRegisterMoveToObject(Object* owner, Object* destination, int action
 // 0x41405C
 int animationRegisterRunToObject(Object* owner, Object* destination, int actionPoints, int delay)
 {
+    cameraFollowOnWalkRegistered(owner);
+
     if (_check_registry(owner) == -1 || actionPoints == 0) {
         _anim_cleanup();
         return -1;
@@ -755,6 +761,8 @@ int animationRegisterRunToObject(Object* owner, Object* destination, int actionP
 // 0x414294
 int animationRegisterMoveToTile(Object* owner, int tile, int elevation, int actionPoints, int delay)
 {
+    cameraFollowOnWalkRegistered(owner);
+
     if (_check_registry(owner) == -1 || actionPoints == 0) {
         _anim_cleanup();
         return -1;
@@ -789,6 +797,8 @@ int animationRegisterMoveToTile(Object* owner, int tile, int elevation, int acti
 // 0x414394
 int animationRegisterRunToTile(Object* owner, int tile, int elevation, int actionPoints, int delay)
 {
+    cameraFollowOnWalkRegistered(owner);
+
     if (_check_registry(owner) == -1 || actionPoints == 0) {
         _anim_cleanup();
         return -1;

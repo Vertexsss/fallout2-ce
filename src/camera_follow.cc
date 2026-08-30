@@ -13,6 +13,7 @@
 #include "settings.h"
 #include "svga.h"
 #include "tile.h"
+#include "touch.h"
 
 namespace fallout {
 
@@ -81,6 +82,13 @@ void cameraFollowTick()
     if (!settings.ui.follow_hero || gDude == nullptr || !animationIsBusy(gDude)) {
         // Walk finished (or the feature was switched off mid-walk).
         gActive = false;
+        return;
+    }
+
+    // A UI screen over the world (inventory, dialog, pipboy) freezes the
+    // walk; do not drag the map behind it - resume when it closes.
+    if (isoIsDisabled() || touch_get_touchscreen_mode()) {
+        gLastTicks = SDL_GetTicks();
         return;
     }
 

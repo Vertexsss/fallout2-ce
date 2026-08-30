@@ -100,7 +100,10 @@ void gameMouseObjectsHide();
 bool gameMouseObjectsIsVisible();
 int gameMouseRenderPrimaryAction(int x, int y, int menuItem, int width, int height);
 int _gmouse_3d_pick_frame_hot(int* x, int* y);
-int gameMouseRenderActionMenuItems(int x, int y, const int* menuItems, int menuItemsCount, int width, int height);
+// handAware (touch): put the icons on the side of the finger that the holding
+// hand does not cover - left by default, right in the rightmost quarter of the
+// screen (held with the other hand there); falls back to whatever fits.
+int gameMouseRenderActionMenuItems(int x, int y, const int* menuItems, int menuItemsCount, int width, int height, bool handAware = false);
 int gameMouseHighlightActionMenuItemAtIndex(int menuItemIndex);
 void gameMouseLoadItemHighlight();
 void _gmouse_remove_item_outline(Object* object);

@@ -1205,7 +1205,12 @@ void _gmouse_handle_event(int mouseX, int mouseY, int mouseState)
                 break;
             }
 
-            if (gameMouseRenderActionMenuItems(mouseX, mouseY, actionMenuItems, actionMenuItemsCount, _scr_size.right - _scr_size.left + 1, _scr_size.bottom - _scr_size.top - 99) == 0) {
+#if __APPLE__ && TARGET_OS_IOS
+            const bool handAwareMenu = true;
+#else
+            const bool handAwareMenu = false;
+#endif
+            if (gameMouseRenderActionMenuItems(mouseX, mouseY, actionMenuItems, actionMenuItemsCount, _scr_size.right - _scr_size.left + 1, _scr_size.bottom - _scr_size.top - 99, handAwareMenu) == 0) {
                 Rect cursorRect;
                 int fid = buildFid(OBJ_TYPE_INTERFACE, 283);
                 // NOTE: Uninline.
@@ -1867,7 +1872,7 @@ int _gmouse_3d_pick_frame_hot(int* x, int* y)
 }
 
 // 0x44D214 gmouse_3d_build_menu_frame
-int gameMouseRenderActionMenuItems(int x, int y, const int* menuItems, int menuItemsLength, int width, int height)
+int gameMouseRenderActionMenuItems(int x, int y, const int* menuItems, int menuItemsLength, int width, int height, bool handAware)
 {
     _gmouse_3d_menu_actions_start = nullptr;
     gGameMouseActionMenuHighlightedItemIndex = 0;
@@ -1963,7 +1968,19 @@ int gameMouseRenderActionMenuItems(int x, int y, const int* menuItems, int menuI
     unsigned char* arrowFrmDest = gGameMouseActionMenuFrmData;
     unsigned char* menuItemFrmDest = arrowFrmDest;
 
-    if (x + arrowWidth + menuItemWidth - 1 < width) {
+    bool fitsRight = x + arrowWidth + menuItemWidth - 1 < width;
+    bool fitsLeft = x - menuItemWidth >= 0;
+    bool placeRight = fitsRight;
+    if (handAware) {
+        bool wantRight = x >= width * 3 / 4;
+        if (wantRight && fitsRight) {
+            placeRight = true;
+        } else if (!wantRight && fitsLeft) {
+            placeRight = false;
+        }
+    }
+
+    if (placeRight) {
         menuItemFrmDest = arrowFrmDest + arrowWidth;
         if (height <= maxY) {
             _gmouse_3d_menu_frame_hot_y += shiftY;

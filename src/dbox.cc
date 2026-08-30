@@ -1,5 +1,7 @@
 #include "dbox.h"
 
+#include "touch.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -24,6 +26,23 @@
 #include "word_wrap.h"
 
 namespace fallout {
+
+// Message boxes pop up over the world, where the touch build runs the
+// cursor in trackpad mode - taps there click wherever the cursor stands.
+// Put the box in touchscreen mode (taps land under the finger) for its
+// lifetime and restore whatever mode the caller was in on every exit path.
+struct DialogBoxTouchScope {
+    bool previous;
+    DialogBoxTouchScope()
+        : previous(touch_get_touchscreen_mode())
+    {
+        touch_set_touchscreen_mode(true);
+    }
+    ~DialogBoxTouchScope()
+    {
+        touch_set_touchscreen_mode(previous);
+    }
+};
 
 #define FILE_DIALOG_LINE_COUNT 12
 
@@ -220,6 +239,7 @@ int showDialogBox(const char* title, const char** body, int bodyLength, int x, i
         fontSetCurrent(savedFont);
         return -1;
     }
+    DialogBoxTouchScope touchScope;
 
     unsigned char* windowBuf = windowGetBuffer(win);
     memcpy(windowBuf, backgroundFrmImage.getData(), backgroundFrmImage.getWidth() * backgroundFrmImage.getHeight());

@@ -139,7 +139,6 @@ int displayMonitorInit()
         gDisplayMonitorScrollPx = 0;
         gDisplayMonitorFlingVy = 0.0;
         gDisplayMonitorTouchDragging = false;
-        tickersAdd(displayMonitorTouchUpdate);
         _max_disp = DISPLAY_MONITOR_HEIGHT / fontGetLineHeight();
         _disp_start = 0;
         _disp_curr = 0;
@@ -220,6 +219,7 @@ int displayMonitorInit()
         }
 
         gDisplayMonitorEnabled = true;
+        tickersAdd(displayMonitorTouchUpdate);
         gDisplayMonitorInitialized = true;
 
         // NOTE: Uninline.
@@ -381,6 +381,7 @@ static void display_clear()
         _disp_curr = 0;
         gDisplayMonitorScrollPx = 0;
         gDisplayMonitorFlingVy = 0.0;
+        gDisplayMonitorTouchDragging = false;
         displayMonitorRefresh();
     }
 }
@@ -488,6 +489,11 @@ bool displayMonitorTouchHitTest(int x, int y)
     if (window == nullptr || (window->flags & WINDOW_HIDDEN) != 0) {
         return false;
     }
+    // A dialog / pipboy / character sheet covers the bar without hiding
+    // it - the log must not steal pans from the screen drawn over it.
+    if (windowGetVisibleAtPoint(x, y) != gInterfaceBarWindow) {
+        return false;
+    }
     Rect r;
     if (windowGetRect(gInterfaceBarWindow, &r) != 0) {
         return false;
@@ -575,18 +581,29 @@ static void displayMonitorScrollDownOnMouseDown(int btn, int keyCode)
 // 0x431BC8 display_arrow_up
 static void displayMonitorScrollUpOnMouseEnter(int btn, int keyCode)
 {
+    if (!gDisplayMonitorEnabled) {
+        // Arrows stay clickable while the UI is disabled (touch build) but
+        // must not replace the wait cursor of the enemy's turn.
+        return;
+    }
     gameMouseSetCursor(MOUSE_CURSOR_SMALL_ARROW_UP);
 }
 
 // 0x431BD4 display_arrow_down
 static void displayMonitorScrollDownOnMouseEnter(int btn, int keyCode)
 {
+    if (!gDisplayMonitorEnabled) {
+        return;
+    }
     gameMouseSetCursor(MOUSE_CURSOR_SMALL_ARROW_DOWN);
 }
 
 // 0x431BE0 display_arrow_restore
 static void displayMonitorOnMouseExit(int btn, int keyCode)
 {
+    if (!gDisplayMonitorEnabled) {
+        return;
+    }
     gameMouseSetCursor(MOUSE_CURSOR_ARROW);
 }
 

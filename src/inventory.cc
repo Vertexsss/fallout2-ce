@@ -60,6 +60,9 @@
 
 namespace fallout {
 
+static bool gInventoryPrevTouchMode = false;
+static bool gInventoryPrevPanMode = false;
+
 #define INVENTORY_WINDOW_X 80
 #define INVENTORY_WINDOW_Y 0
 
@@ -2077,6 +2080,8 @@ static bool _setup_inventory(int inventoryWindowType)
     bool isoWasEnabled = isoDisable();
 
     _gmouse_disable(0);
+    gInventoryPrevTouchMode = touch_get_touchscreen_mode();
+    gInventoryPrevPanMode = touch_get_pan_mode();
     touch_set_touchscreen_mode(true);
     touch_set_pan_mode(true);
 
@@ -2125,8 +2130,8 @@ static void _exit_inventory(bool shouldEnableIso)
     partySlotFrmImage.unlock();
 
     _gmouse_enable();
-    touch_set_touchscreen_mode(false);
-    touch_set_pan_mode(false);
+    touch_set_touchscreen_mode(gInventoryPrevTouchMode);
+    touch_set_pan_mode(gInventoryPrevPanMode);
 
     if (_dropped_explosive) {
         Attack attack;

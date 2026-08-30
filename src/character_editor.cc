@@ -51,6 +51,8 @@
 
 namespace fallout {
 
+static bool gCharacterEditorPrevTouchMode = false;
+
 #define EDITOR_WINDOW_WIDTH 640
 #define EDITOR_WINDOW_HEIGHT 480
 
@@ -931,6 +933,7 @@ int characterEditorShow(bool isCreationMode)
         return -1;
     }
 
+    gCharacterEditorPrevTouchMode = touch_get_touchscreen_mode();
     touch_set_touchscreen_mode(true);
 
     if (!gCharacterEditorIsCreationMode) {
@@ -1336,7 +1339,7 @@ int characterEditorShow(bool isCreationMode)
 
     interfaceRenderHitPoints(false);
 
-    touch_set_touchscreen_mode(false);
+    touch_set_touchscreen_mode(gCharacterEditorPrevTouchMode);
 
     return rc;
 }

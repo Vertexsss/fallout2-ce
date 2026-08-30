@@ -50,6 +50,8 @@
 
 namespace fallout {
 
+static bool gDialogPrevTouchMode = false;
+
 #define DIALOG_REVIEW_ENTRIES_CAPACITY 80
 
 #define DIALOG_OPTION_ENTRIES_CAPACITY 30
@@ -1072,6 +1074,7 @@ int _gdialogInitFromScript(int headFid, HeadFidget reaction)
     // On iPad with relative mouse mode, taps send zero-delta clicks at the
     // cursor position instead of at the finger — unusable without touchscreen
     // mode. Same pattern as inventory, skilldex, elevator, automap, etc.
+    gDialogPrevTouchMode = touch_get_touchscreen_mode();
     touch_set_touchscreen_mode(true);
 
     return 0;
@@ -1098,7 +1101,7 @@ int _gdialogExitFromScript()
         gameDialogRestoreCenterTile();
     }
 
-    touch_set_touchscreen_mode(false);
+    touch_set_touchscreen_mode(gDialogPrevTouchMode);
 
     GameMode::exitGameMode(GameMode::kDialog);
 
@@ -1647,6 +1650,8 @@ int gameDialogShowReview()
         sharedFpsLimiter.mark();
 
         int keyCode = inputGetInput();
+        // Touch: two-finger pan scrolls the review like the arrows.
+        convertMouseWheelToArrowKey(&keyCode);
         if (keyCode == 17 || keyCode == 24 || keyCode == 324) {
             showQuitConfirmationDialog();
         }
@@ -4478,7 +4483,9 @@ int _gdCustomSelect(int option)
                         if (newValue < 6) {
                             unsigned int timestamp = getTicks();
                             if (newValue == value) {
-                                if (getTicksBetween(timestamp, lastSelectionTimestamp) < 250) {
+                                // 450ms: two touch taps (90ms synthetic
+                                // holds each) rarely fit in 250.
+                                if (getTicksBetween(timestamp, lastSelectionTimestamp) < 450) {
                                     _custom_current_selected[option] = newValue;
                                     _gdCustomUpdateSetting(option, newValue);
                                     done = true;

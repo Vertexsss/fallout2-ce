@@ -1177,6 +1177,22 @@ Buffer2D windowGetBuffer2D(int win)
 }
 
 // 0x4D78CC
+int windowGetVisibleAtPoint(int x, int y)
+{
+    for (int index = gWindowsLength - 1; index >= 0; index--) {
+        Window* window = gWindows[index];
+        if ((window->flags & WINDOW_HIDDEN) != 0) {
+            continue;
+        }
+        if (x >= window->rect.left && x <= window->rect.right
+            && y >= window->rect.top && y <= window->rect.bottom) {
+            return window->id;
+        }
+    }
+
+    return -1;
+}
+
 int windowGetAtPoint(int x, int y)
 {
     for (int index = gWindowsLength - 1; index >= 0; index--) {

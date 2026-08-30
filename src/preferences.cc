@@ -27,6 +27,8 @@
 
 namespace fallout {
 
+static bool gPreferencesPrevTouchMode = false;
+
 #define PREFERENCES_WINDOW_WIDTH 640
 #define PREFERENCES_WINDOW_HEIGHT 480
 
@@ -1223,7 +1225,7 @@ static int preferencesWindowFree()
     fontSetCurrent(_oldFont);
 
     preferencesMessageListReset();
-    touch_set_touchscreen_mode(false);
+    touch_set_touchscreen_mode(gPreferencesPrevTouchMode);
 
     return 0;
 }
@@ -1243,6 +1245,7 @@ int doPreferences(bool animated)
         mouseShowCursor();
     }
 
+    gPreferencesPrevTouchMode = touch_get_touchscreen_mode();
     touch_set_touchscreen_mode(true);
 
     if (animated) {

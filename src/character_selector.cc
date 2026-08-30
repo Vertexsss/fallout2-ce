@@ -36,6 +36,8 @@
 
 namespace fallout {
 
+static bool gCharacterSelectorPrevTouchMode = false;
+
 #define CS_WINDOW_WIDTH (640)
 #define CS_WINDOW_HEIGHT (480)
 
@@ -163,10 +165,12 @@ static std::vector<PremadeCharacterDescription> gCustomPremadeCharacterDescripti
 // 0x4A71D0 select_character
 int characterSelectorOpen()
 {
+    gCharacterSelectorPrevTouchMode = touch_get_touchscreen_mode();
 #if __APPLE__ && TARGET_OS_IOS
     touch_set_touchscreen_mode(true);
 #endif
     if (!characterSelectorWindowInit()) {
+        touch_set_touchscreen_mode(gCharacterSelectorPrevTouchMode);
         return 0;
     }
 
@@ -269,9 +273,7 @@ int characterSelectorOpen()
         mouseHideCursor();
     }
 
-#if __APPLE__ && TARGET_OS_IOS
-    touch_set_touchscreen_mode(false);
-#endif
+    touch_set_touchscreen_mode(gCharacterSelectorPrevTouchMode);
     return rc;
 }
 

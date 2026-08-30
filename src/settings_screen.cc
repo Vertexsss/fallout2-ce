@@ -16,6 +16,8 @@
 
 namespace fallout {
 
+static bool gSettingsPrevTouchMode = false;
+
 namespace {
 
 constexpr int kWindowWidth = 380;
@@ -342,6 +344,7 @@ void settingsScreenShow()
 
     // Like the other UI screens: taps land where the finger is, not where
     // the trackpad-style world cursor happens to be.
+    gSettingsPrevTouchMode = touch_get_touchscreen_mode();
     touch_set_touchscreen_mode(true);
 
     // invisible hotspot buttons: whole row cycles the value, footer closes
@@ -384,7 +387,7 @@ void settingsScreenShow()
 
     settingsSave();
 
-    touch_set_touchscreen_mode(false);
+    touch_set_touchscreen_mode(gSettingsPrevTouchMode);
     fontSetCurrent(oldFont);
     windowDestroy(win);
 }

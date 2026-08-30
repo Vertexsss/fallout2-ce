@@ -29,6 +29,8 @@
 
 namespace fallout {
 
+static bool gElevatorPrevTouchMode = false;
+
 // The maximum number of elevator levels.
 #define ELEVATOR_LEVEL_MAX (4)
 
@@ -363,6 +365,7 @@ int elevatorSelectLevel(int elevator, Map* mapPtr, int* elevationPtr, int* tileP
     }
 
     const ElevatorDescription* elevatorDescription = gElevatorDescriptions[elevator];
+    gElevatorPrevTouchMode = touch_get_touchscreen_mode();
     touch_set_touchscreen_mode(true);
 
     int index;
@@ -493,7 +496,7 @@ int elevatorSelectLevel(int elevator, Map* mapPtr, int* elevationPtr, int* tileP
     }
 
     elevatorWindowFree();
-    touch_set_touchscreen_mode(false);
+    touch_set_touchscreen_mode(gElevatorPrevTouchMode);
 
     if (keyCode >= 0 && keyCode < gElevatorLevels[elevator]) {
         const ElevatorDescription* description = &(elevatorDescription[keyCode]);

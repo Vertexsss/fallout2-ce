@@ -69,6 +69,8 @@
 
 namespace fallout {
 
+static bool gLoadSavePrevTouchMode = false;
+
 #define LOAD_SAVE_SIGNATURE "FALLOUT SAVE FILE"
 #define LOAD_SAVE_DESCRIPTION_LENGTH 30
 #define LOAD_SAVE_HANDLER_COUNT 27
@@ -517,8 +519,6 @@ int lsgSaveGame(int mode)
         return -1;
     }
 
-    touch_set_touchscreen_mode(mode == LOAD_SAVE_MODE_NORMAL);
-
     _quick_done = false;
 
     int windowType = mode == LOAD_SAVE_MODE_QUICK
@@ -528,6 +528,11 @@ int lsgSaveGame(int mode)
         debugPrint("\nLOADSAVE: ** Error loading save game screen data! **\n");
         return -1;
     }
+
+    // Any slot picker (incl. the quick-save one) is a tap screen. Restored
+    // by lsgWindowFree to what the caller (options, main menu) had.
+    gLoadSavePrevTouchMode = touch_get_touchscreen_mode();
+    touch_set_touchscreen_mode(true);
 
     pipboyMessageListInit();
 
@@ -1153,12 +1158,13 @@ int lsgLoadGame(int mode)
         gDevLoadGameSlot = -1;
     }
 
-    touch_set_touchscreen_mode(windowType == LOAD_SAVE_WINDOW_TYPE_LOAD_GAME || windowType == LOAD_SAVE_WINDOW_TYPE_LOAD_GAME_FROM_MAIN_MENU);
-
     if (lsgWindowInit(windowType) == -1) {
         debugPrint("\nLOADSAVE: ** Error loading save game screen data! **\n");
         return -1;
     }
+
+    gLoadSavePrevTouchMode = touch_get_touchscreen_mode();
+    touch_set_touchscreen_mode(true);
 
     pipboyMessageListInit();
 
@@ -1851,7 +1857,7 @@ static int lsgWindowFree(int windowType)
 
     colorCycleEnable();
     gameMouseSetCursor(MOUSE_CURSOR_ARROW);
-    touch_set_touchscreen_mode(false);
+    touch_set_touchscreen_mode(gLoadSavePrevTouchMode);
 
     return 0;
 }

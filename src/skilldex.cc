@@ -27,6 +27,8 @@
 
 namespace fallout {
 
+static bool gSkilldexPrevTouchMode = false;
+
 #define SKILLDEX_WINDOW_RIGHT_MARGIN 4
 #define SKILLDEX_WINDOW_BOTTOM_MARGIN 6
 
@@ -116,6 +118,7 @@ SkilldexRC skilldexOpen()
         return SKILLDEX_RC_ERROR;
     }
 
+    gSkilldexPrevTouchMode = touch_get_touchscreen_mode();
     touch_set_touchscreen_mode(true);
 
     SkilldexRC rc = SKILLDEX_RC_ERROR;
@@ -424,7 +427,7 @@ static void skilldexWindowFree()
     colorCycleEnable();
 
     gameMouseSetCursor(MOUSE_CURSOR_ARROW);
-    touch_set_touchscreen_mode(false);
+    touch_set_touchscreen_mode(gSkilldexPrevTouchMode);
 }
 
 } // namespace fallout

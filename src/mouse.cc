@@ -475,6 +475,24 @@ static int gTouchScrollTarget = kTouchScrollNone;
 static double gTouchScrollVy = 0.0;
 static unsigned int gTouchScrollLastTicks = 0;
 
+// A tap in touchscreen mode whose finger-down and -up arrived in the same
+// event pump never got its cursor warp: the press is placed and deferred by
+// one frame so the window manager hovers the button before the click
+// (it ignores a button-down on a button it is not already hovering).
+static int gDeferredTapButtons = 0;
+
+// Ends a pan that was routed to a scrollable list without waiting for its
+// kEnded (the gesture backlog was discarded).
+void mouseTouchScrollCancel()
+{
+    if (gTouchScrollTarget == kTouchScrollTabs) {
+        wmTouchTabsRelease(0.0);
+    } else if (gTouchScrollTarget == kTouchScrollMonitor) {
+        displayMonitorTouchRelease(0.0);
+    }
+    gTouchScrollTarget = kTouchScrollNone;
+}
+
 // Finger travel per one list-scroll wheel tick in touchscreen contexts.
 constexpr int kWheelStepPx = 32;
 static int gWheelAccumX = 0;
@@ -537,8 +555,20 @@ void _mouse_info()
 
         // Inertia must not carry over across a load or cutscene either.
         gFlingActive = false;
+        // Nor a list scroll whose finger-up was in the discarded backlog:
+        // the log would think it is being dragged forever.
+        mouseTouchScrollCancel();
+        gDeferredTapButtons = 0;
 
         return;
+    }
+
+    if (gDeferredTapButtons != 0) {
+        int buttons = gDeferredTapButtons;
+        gDeferredTapButtons = 0;
+        _mouse_simulate_input(0, 0, buttons);
+        gSyntheticHoldButtons = buttons;
+        gSyntheticHoldUntil = SDL_GetTicks() + kSyntheticPressMs;
     }
 
     Gesture gesture;
@@ -618,6 +648,18 @@ void _mouse_info()
 #endif
 
             if (mouseDeviceUsesRelativeMode()) {
+                if (touch_get_touchscreen_mode() && (gMouseCursorX != gesture.x || gMouseCursorY != gesture.y)) {
+                    // Finger-down and -up landed in one pump, so the
+                    // touchscreen warp never happened: place the cursor
+                    // now and press next frame (see gDeferredTapButtons).
+                    _mouse_set_position(gesture.x, gesture.y);
+                    if (gesture.numberOfTouches == 1) {
+                        gDeferredTapButtons = MOUSE_STATE_LEFT_BUTTON_DOWN;
+                    } else if (gesture.numberOfTouches == 2) {
+                        gDeferredTapButtons = MOUSE_STATE_RIGHT_BUTTON_DOWN;
+                    }
+                    goto tap_done;
+                }
                 if (gesture.numberOfTouches == 1) {
                     _mouse_simulate_input(0, 0, MOUSE_STATE_LEFT_BUTTON_DOWN);
                 } else if (gesture.numberOfTouches == 2) {
@@ -659,7 +701,9 @@ void _mouse_info()
             if (gesture.type == kPan) {
                 if (gesture.state == kBegan) {
                     gTouchScrollTarget = kTouchScrollNone;
-                    if (wmTouchTabsHitTest(gesture.x, gesture.y)) {
+                    if (gesture.numberOfTouches != 1) {
+                        // Two fingers stay the camera / map wheel.
+                    } else if (wmTouchTabsHitTest(gesture.x, gesture.y)) {
                         gTouchScrollTarget = kTouchScrollTabs;
                     } else if (displayMonitorTouchHitTest(gesture.x, gesture.y)) {
                         gTouchScrollTarget = kTouchScrollMonitor;

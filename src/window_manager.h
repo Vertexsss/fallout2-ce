@@ -226,6 +226,9 @@ Window* windowGetWindow(int win);
 unsigned char* windowGetBuffer(int win);
 Buffer2D windowGetBuffer2D(int win);
 int windowGetAtPoint(int x, int y);
+// Same, skipping hidden windows (touch hit tests must not reach a covered
+// or hidden window).
+int windowGetVisibleAtPoint(int x, int y);
 int windowGetWidth(int win);
 int windowGetHeight(int win);
 int windowGetRect(int win, Rect* rect);

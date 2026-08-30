@@ -24,6 +24,8 @@
 
 namespace fallout {
 
+static bool gOptionsPrevTouchMode = false;
+
 #define OPTIONS_MENU_BUTTON_SAVE 500
 #define OPTIONS_MENU_BUTTON_LOAD 501
 #define OPTIONS_MENU_BUTTON_PREFERENCES 502
@@ -130,6 +132,7 @@ int showOptions()
         return -1;
     }
 
+    gOptionsPrevTouchMode = touch_get_touchscreen_mode();
     touch_set_touchscreen_mode(true);
 
     int rc = -1;
@@ -409,7 +412,7 @@ static void optionsWindowCleanup(bool restoreWorldState)
         mouseHideCursor();
     }
 
-    touch_set_touchscreen_mode(false);
+    touch_set_touchscreen_mode(gOptionsPrevTouchMode);
 }
 
 // 0x4902B0 PauseWindow

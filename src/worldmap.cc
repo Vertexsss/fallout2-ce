@@ -590,6 +590,10 @@ static void wmInterfaceScrollTabsStart(int delta);
 static void wmTouchTabsUpdate();
 static bool gWmActive = false;
 static double gWmTabsFlingVy = 0.0;
+static bool gWmPrevTouchMode = false;
+// The button column was drawn at scrolled positions - wipe it once more
+// on the first aligned refresh.
+static bool gWmTabsWipePending = false;
 static void wmInterfaceScrollTabsStop();
 static void wmInterfaceScrollTabsUpdate();
 static int wmInterfaceInit();
@@ -3392,9 +3396,11 @@ static int wmWorldMapFunc(int a1)
 
     // Touch: taps land where the finger is (travel, town list, buttons);
     // two-finger pans scroll the map through the wheel path.
+    gWmPrevTouchMode = touch_get_touchscreen_mode();
     touch_set_touchscreen_mode(true);
     gWmActive = true;
     gWmTabsFlingVy = 0.0;
+    gWmTabsWipePending = false;
 #if __APPLE__ && TARGET_OS_IOS
     // No cursor on the world map: taps land under the finger anyway. The
     // NONE cursor is a blank frame, not a hidden cursor, so gestures flow.
@@ -3677,7 +3683,7 @@ static int wmWorldMapFunc(int a1)
         } else if (keyCode == KEY_CTRL_ARROW_DOWN) {
             wmInterfaceScrollTabsStart(WM_TOWN_LIST_SLOT_HEIGHT);
         } else if (keyCode >= KEY_CTRL_F1 && keyCode <= KEY_CTRL_F7) {
-            int quickDestinationIndex = wmGenData.tabsOffsetY / WM_TOWN_LIST_SLOT_HEIGHT + (keyCode - KEY_CTRL_F1);
+            int quickDestinationIndex = (wmGenData.tabsOffsetY + WM_TOWN_LIST_SLOT_HEIGHT / 2) / WM_TOWN_LIST_SLOT_HEIGHT + (keyCode - KEY_CTRL_F1);
             if (quickDestinationIndex < wmLabelCount) {
                 City areaIdx = static_cast<City>(wmLabelList[quickDestinationIndex]);
                 CityInfo* city = &(wmAreaInfoList[areaIdx]);
@@ -3725,6 +3731,15 @@ static int wmWorldMapFunc(int a1)
         sharedFpsLimiter.throttle();
     }
 
+    // Restore before the exit check - its error return must not leave the
+    // blank cursor / touchscreen mode behind.
+    gWmActive = false;
+    gWmTabsFlingVy = 0.0;
+#if __APPLE__ && TARGET_OS_IOS
+    gameMouseSetCursor(MOUSE_CURSOR_ARROW);
+#endif
+    touch_set_touchscreen_mode(gWmPrevTouchMode);
+
     if (wmInterfaceExit() == -1) {
         wmFadeReset();
         return -1;
@@ -3732,12 +3747,6 @@ static int wmWorldMapFunc(int a1)
 
     wmFadeIn();
 
-    gWmActive = false;
-    gWmTabsFlingVy = 0.0;
-#if __APPLE__ && TARGET_OS_IOS
-    gameMouseSetCursor(MOUSE_CURSOR_ARROW);
-#endif
-    touch_set_touchscreen_mode(false);
     return rc;
 }
 
@@ -4931,19 +4940,28 @@ static void wmTabsSnapToSlot()
 {
     int rem = wmGenData.tabsOffsetY % WM_TOWN_LIST_SLOT_HEIGHT;
     if (rem != 0) {
-        wmInterfaceScrollTabsStart(rem < WM_TOWN_LIST_SLOT_HEIGHT / 2 ? -rem : WM_TOWN_LIST_SLOT_HEIGHT - rem);
+        int delta = rem < WM_TOWN_LIST_SLOT_HEIGHT / 2 ? -rem : WM_TOWN_LIST_SLOT_HEIGHT - rem;
+        if (wmGenData.tabsOffsetY + delta > wmTabsMaxOffset()) {
+            // The step animation does not clamp - never settle past the end.
+            delta = -rem;
+        }
+        wmInterfaceScrollTabsStart(delta);
     }
     if (wmGenData.tabsScrollingDelta == 0) {
-        // Already on a slot (or the step could not start): put the engine
-        // buttons back at their fixed slots.
-        wmInterfaceScrollTabsStop();
+        // Already on a slot (or the step could not start): redraw (wipes
+        // the scrolled buttons), then put the engine buttons back at
+        // their fixed slots on top.
         wmRefreshInterfaceOverlay(true);
+        wmInterfaceScrollTabsStop();
     }
 }
 
 bool wmTouchTabsHitTest(int x, int y)
 {
     if (!gWmActive || wmBkWin == -1) {
+        return false;
+    }
+    if (windowGetVisibleAtPoint(x, y) != wmBkWin) {
         return false;
     }
     Rect r;
@@ -7228,6 +7246,25 @@ static int wmRefreshTabs()
     unsigned char* nextTabDest;
     FrmImage labelFrm;
 
+    // Touch: while the list sits between slots the quick-destination
+    // buttons are drawn at scrolled positions (below). Their pixels are
+    // not cleaned by the transparent plate blit, so restore the whole
+    // button column from the window background first - during the drag
+    // and once more on the first aligned refresh after it.
+    {
+        int withinSlot = wmGenData.tabsOffsetY % WM_TOWN_LIST_SLOT_HEIGHT;
+        if (withinSlot != 0 || gWmTabsWipePending) {
+            int buttonWidth = wmGenData.redButtonNormalFrmImage.getWidth();
+            blitBufferToBuffer(_backgroundFrmImage.getData() + _backgroundFrmImage.getWidth() * WM_TOWN_LIST_Y + 508,
+                buttonWidth,
+                WM_TOWN_LIST_HEIGHT,
+                _backgroundFrmImage.getWidth(),
+                wmBkWinBuf + WM_WINDOW_WIDTH * WM_TOWN_LIST_Y + 508,
+                WM_WINDOW_WIDTH);
+        }
+        gWmTabsWipePending = withinSlot != 0;
+    }
+
     // CE: Skip first empty tab (original code does this in the
     // `wmInterfaceInit`).
     unsigned char* src = wmGenData.tabsBackgroundFrmImage.getData() + wmGenData.tabsBackgroundFrmImage.getWidth() * WM_TOWN_LIST_SLOT_HEIGHT;
@@ -7321,17 +7358,8 @@ static int wmRefreshTabs()
         int listTop = WM_TOWN_LIST_Y + 2;
         int listBottom = WM_TOWN_LIST_Y + WM_TOWN_LIST_HEIGHT;
 
+        // One button per drawn label (the label loop draws 7 rows).
         for (int index = 0; index < WM_TOWN_LIST_VISIBLE_SLOT_COUNT; index++) {
-            int slotY = 138 + WM_TOWN_LIST_SLOT_HEIGHT * index;
-            blitBufferToBuffer(_backgroundFrmImage.getData() + _backgroundFrmImage.getWidth() * slotY + 508,
-                buttonWidth,
-                buttonHeight,
-                _backgroundFrmImage.getWidth(),
-                wmBkWinBuf + WM_WINDOW_WIDTH * slotY + 508,
-                WM_WINDOW_WIDTH);
-        }
-
-        for (int index = 0; index <= WM_TOWN_LIST_VISIBLE_SLOT_COUNT; index++) {
             if (firstVisibleLabelIndex + index >= wmLabelCount) {
                 break;
             }

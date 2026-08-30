@@ -48,6 +48,8 @@
 
 namespace fallout {
 
+static bool gPipboyPrevTouchMode = false;
+
 #define PIPBOY_WINDOW_WIDTH (640)
 #define PIPBOY_WINDOW_HEIGHT (480)
 
@@ -530,6 +532,7 @@ int pipboyOpen(int intent)
     ScopedGameMode gm(GameMode::kPipboy);
     windowRefresh(gPipboyWindow);
 
+    gPipboyPrevTouchMode = touch_get_touchscreen_mode();
     touch_set_touchscreen_mode(true);
 
     mouseGetPositionInWindow(gPipboyWindow, &gPipboyPreviousMouseX, &gPipboyPreviousMouseY);
@@ -539,6 +542,18 @@ int pipboyOpen(int intent)
         sharedFpsLimiter.mark();
 
         int keyCode = inputGetInput();
+
+        // Touch: a two-finger pan (wheel) turns the pages like PgUp/PgDn.
+        if (keyCode == -1 && (mouseGetEvent() & MOUSE_EVENT_WHEEL) != 0) {
+            int wheelX;
+            int wheelY;
+            mouseGetWheel(&wheelX, &wheelY);
+            if (wheelY > 0) {
+                keyCode = KEY_PAGE_UP;
+            } else if (wheelY < 0) {
+                keyCode = KEY_PAGE_DOWN;
+            }
+        }
 
         if (intent == PIPBOY_OPEN_INTENT_REST) {
             keyCode = 504;
@@ -600,7 +615,7 @@ int pipboyOpen(int intent)
         sharedFpsLimiter.throttle();
     }
 
-    touch_set_touchscreen_mode(false);
+    touch_set_touchscreen_mode(gPipboyPrevTouchMode);
 
     pipboyWindowFree();
 

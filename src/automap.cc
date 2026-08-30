@@ -1,3 +1,6 @@
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
 #include "automap.h"
 
 #include <stdio.h>
@@ -30,6 +33,8 @@
 #include "worldmap.h"
 
 namespace fallout {
+
+static bool gAutomapPrevTouchMode = false;
 
 #define AUTOMAP_OFFSET_COUNT (AUTOMAP_MAP_COUNT * ELEVATION_COUNT)
 
@@ -333,12 +338,19 @@ void automapShow(bool isInGame, bool isUsingScanner)
 
     int oldFont = fontGetCurrent();
     fontSetCurrent(101);
+    gAutomapPrevTouchMode = touch_get_touchscreen_mode();
     touch_set_touchscreen_mode(true);
 
     int automapWindowX = (screenGetWidth() - AUTOMAP_WINDOW_WIDTH) / 2;
     int automapWindowY = (screenGetHeight() - AUTOMAP_WINDOW_HEIGHT) / 2;
     // adding WINDOW_TRANSPARENT and WINDOW_DRAGGABLE_BY_BACKGROUND for testing temporarily
-    int window = windowCreate(automapWindowX, automapWindowY, AUTOMAP_WINDOW_WIDTH, AUTOMAP_WINDOW_HEIGHT, color, WINDOW_MODAL | WINDOW_MOVE_ON_TOP | WINDOW_TRANSPARENT | WINDOW_DRAGGABLE_BY_BACKGROUND);
+    int automapWindowFlags = WINDOW_MODAL | WINDOW_MOVE_ON_TOP | WINDOW_TRANSPARENT;
+#if !(__APPLE__ && TARGET_OS_IOS)
+    // Touch: a synthetic tap is a short held button - a background drag
+    // would nudge the window on every tap.
+    automapWindowFlags |= WINDOW_DRAGGABLE_BY_BACKGROUND;
+#endif
+    int window = windowCreate(automapWindowX, automapWindowY, AUTOMAP_WINDOW_WIDTH, AUTOMAP_WINDOW_HEIGHT, color, automapWindowFlags);
     gAutomapWindow = window;
 
     int scannerBtn = buttonCreate(window,
@@ -509,7 +521,7 @@ void automapShow(bool isInGame, bool isUsingScanner)
     windowDestroy(window);
     gAutomapWindow = -1;
     fontSetCurrent(oldFont);
-    touch_set_touchscreen_mode(false);
+    touch_set_touchscreen_mode(gAutomapPrevTouchMode);
 }
 
 int automapGetWindow()

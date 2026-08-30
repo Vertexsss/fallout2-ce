@@ -164,6 +164,7 @@ static void inputHandleProgramActivationChange(bool isActive)
     SDL_FlushEvents(SDL_FINGERDOWN, SDL_FINGERMOTION);
     sfall_kb_clear_synthetic_key_events();
     touch_reset();
+    mouseTouchScrollCancel();
 
     if (isActive) {
         mouseDeviceInitMode();

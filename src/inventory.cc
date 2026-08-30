@@ -197,7 +197,11 @@ constexpr int kPartySlotImageHeight = 139;
 #define INVENTORY_SLOT_WIDTH_PAD (INVENTORY_SLOT_WIDTH - INVENTORY_SLOT_PADDING * 2)
 #define INVENTORY_SLOT_HEIGHT_PAD (INVENTORY_SLOT_HEIGHT - INVENTORY_SLOT_PADDING * 2)
 
-#define INVENTORY_NORMAL_WINDOW_PC_ROTATION_DELAY (1000U / ROTATION_COUNT)
+// Vanilla turned the character once per second (1000 / 6 directions); at
+// six sprite directions that reads as a nervous spin on a tablet. One full
+// turn every 2.5 seconds keeps every animation path untouched - only the
+// time-based step delay changes.
+#define INVENTORY_NORMAL_WINDOW_PC_ROTATION_DELAY (2500U / ROTATION_COUNT)
 #define INVENTORY_FRM_COUNT 12
 #define INVENTORY_ROWS 6
 

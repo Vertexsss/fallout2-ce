@@ -4478,8 +4478,15 @@ static void inventoryWindowOpenContextMenu(int keyCode, int inventoryWindowType)
     // left instead - there the menu goes to the RIGHT.
     {
         bool rightQuarter = x >= screenGetWidth() * 3 / 4;
-        int shifted = rightQuarter ? rect.left + cursorData->width : rect.left - cursorData->width;
-        rect.left = std::clamp(shifted, 0, std::max(0, windowWidth - cursorData->width));
+        int shiftedRight = rect.left + cursorData->width;
+        int shiftedLeft = rect.left - cursorData->width;
+        // Rightward placement only when it actually fits inside the window;
+        // clamping it back would put the menu under the finger again.
+        if (rightQuarter && shiftedRight + cursorData->width <= windowWidth) {
+            rect.left = shiftedRight;
+        } else {
+            rect.left = std::max(shiftedLeft, 0);
+        }
     }
 #endif
     rect.right = rect.left + cursorData->width - 1;

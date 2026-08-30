@@ -186,7 +186,11 @@ static bool mainMenuShouldUseVanillaArtForLayout(int backgroundWidth, int backgr
 
 static bool mainMenuLoadArt()
 {
-    bool canUseHiresArt = screenGetWidth() != MAIN_MENU_LOGICAL_WIDTH || screenGetHeight() != MAIN_MENU_LOGICAL_HEIGHT;
+    // The HRP menu picture (HR_MAINMENU.FRM from f2_res.dat) replaces the
+    // original at any non-640x480 resolution; MENU ART: CLASSIC keeps the
+    // original mainmenu.frm, aspect-fit scaled.
+    bool canUseHiresArt = (screenGetWidth() != MAIN_MENU_LOGICAL_WIDTH || screenGetHeight() != MAIN_MENU_LOGICAL_HEIGHT)
+        && !settings.ui.main_menu_classic_art;
     if (canUseHiresArt && mainMenuBackgroundFrmImage.lock(FrmId(OBJ_TYPE_INTERFACE, "HR_MAINMENU.FRM"))) {
         if (mainMenuShouldUseVanillaArtForLayout(mainMenuBackgroundFrmImage.getWidth(), mainMenuBackgroundFrmImage.getHeight())) {
             // use Vanilla art if not scaling to reduce artifacts

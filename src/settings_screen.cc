@@ -233,6 +233,16 @@ void fpsCounterNext()
     settings.debug.show_fps = !settings.debug.show_fps;
 }
 
+const char* menuArtText()
+{
+    return settings.ui.main_menu_classic_art ? "CLASSIC" : "HRP";
+}
+
+void menuArtNext()
+{
+    settings.ui.main_menu_classic_art = !settings.ui.main_menu_classic_art;
+}
+
 constexpr Row kRows[] = {
     { "RENDER SCALE", scaleText, scaleNext },
     { "IFACE BAR MODE", barModeText, barModeNext },
@@ -246,6 +256,7 @@ constexpr Row kRows[] = {
     { "MAP STENCIL", stencilText, stencilNext },
     { "PLAYER ARROW", dudePointerText, dudePointerNext },
     { "UI SCALE", uiScaleText, uiScaleNext },
+    { "MENU ART", menuArtText, menuArtNext },
 };
 constexpr int kRowCount = static_cast<int>(sizeof(kRows) / sizeof(kRows[0]));
 constexpr int kWindowHeight = kTitleHeight + kRowCount * kRowHeight + kFooterHeight;

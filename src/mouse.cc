@@ -481,6 +481,18 @@ static unsigned int gTouchScrollLastTicks = 0;
 // (it ignores a button-down on a button it is not already hovering).
 static int gDeferredTapButtons = 0;
 
+// Set when a touch long press starts delivering its held button: the
+// engine's hold-to-open menus (inventory item menu, world action menu) wait
+// another BUTTON_REPEAT_TIME for the first repeat on top of the 300ms the
+// recognizer already took. Backdating the press timestamp makes that repeat
+// fire on the next frame - the long press itself is the intent signal.
+static bool gBackdateLeftPress = false;
+
+bool mouseTouchTapHoldActive()
+{
+    return gSyntheticHoldButtons != 0 && SDL_GetTicks() < gSyntheticHoldUntil;
+}
+
 // Ends a pan that was routed to a scrollable list without waiting for its
 // kEnded (the gesture backlog was discarded).
 void mouseTouchScrollCancel()
@@ -746,6 +758,9 @@ void _mouse_info()
 
             if (gesture.type == kLongPress) {
                 if (gesture.numberOfTouches == 1) {
+                    if (gesture.state == kBegan) {
+                        gBackdateLeftPress = true;
+                    }
                     _mouse_simulate_input(gesture.x - prevx, gesture.y - prevy, MOUSE_STATE_LEFT_BUTTON_DOWN);
                 } else if (gesture.numberOfTouches == 2) {
                     _mouse_simulate_input(gesture.x - prevx, gesture.y - prevy, MOUSE_STATE_RIGHT_BUTTON_DOWN);
@@ -988,7 +1003,12 @@ void _mouse_simulate_input(int delta_x, int delta_y, int buttons)
         if ((buttons & 0x01) != 0) {
             gMouseEvent |= MOUSE_EVENT_LEFT_BUTTON_DOWN;
             previousLeftButtonTimestamp = getTicks();
+            if (gBackdateLeftPress) {
+                // Touch long press: the hold has already lasted long enough.
+                previousLeftButtonTimestamp -= BUTTON_REPEAT_TIME + 1;
+            }
         }
+        gBackdateLeftPress = false;
     }
 
     if ((previousEvent & MOUSE_EVENT_RIGHT_BUTTON_DOWN_REPEAT) != 0) {

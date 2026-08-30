@@ -177,6 +177,7 @@ void initSettingsRegistry(bool isMapper)
     SETTING(free_scroll);
     SETTING(edge_scroll);
     SETTING(follow_hero);
+    SETTING(main_menu_classic_art);
     SETTING(dude_pointer);
     SETTING(iface_bar_mode);
     SETTING(perks_progress_bar);

@@ -1,4 +1,5 @@
 #include "inventory.h"
+#include "touch.h"
 
 #ifdef __APPLE__
 #include <TargetConditionals.h>
@@ -2857,8 +2858,10 @@ static void _inven_pickup(int buttonCode, int indexOffset)
         _inven_update_lighting(nullptr);
     }
 
-    // allow ctrl-click to quick unequip or equip item
-    bool immediate = _ctrl_pressed();
+    // allow ctrl-click to quick unequip or equip item. Touch: a quick tap
+    // (not a held finger) takes the same path - tap an item to equip it,
+    // tap a hand/armor slot to put it back; a long press still drags.
+    bool immediate = _ctrl_pressed() || (touch_get_touchscreen_mode() && mouseTouchTapHoldActive());
     _drag_item_loop(item, immediate);
 
     // drag into inventory list, or ctrl-click from slot
@@ -6268,6 +6271,8 @@ static int inventoryQuantitySelect(int inventoryWindowType, Object* item, int ma
     ScopedGameMode gm(GameMode::kCounter);
 
     inventoryQuantityWindowInit(inventoryWindowType, item);
+    // Digits can be typed - bring up the soft keyboard on touch platforms.
+    beginTextInput();
 
     int value;
     int min;
@@ -6290,6 +6295,7 @@ static int inventoryQuantitySelect(int inventoryWindowType, Object* item, int ma
 
         int keyCode = inputGetInput();
         if (keyCode == KEY_ESCAPE) {
+            endTextInput();
             inventoryQuantityWindowFree(inventoryWindowType);
             return -1;
         }
@@ -6420,6 +6426,7 @@ static int inventoryQuantitySelect(int inventoryWindowType, Object* item, int ma
         sharedFpsLimiter.throttle();
     }
 
+    endTextInput();
     inventoryQuantityWindowFree(inventoryWindowType);
 
     return value;

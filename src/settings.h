@@ -77,6 +77,10 @@ struct UISettings {
     // scrolled away; tapping it re-centers on the player.
     bool dude_pointer = true;
 
+    // Use the original 640x480 mainmenu.frm (aspect-fit) instead of the
+    // High Resolution Patch picture shipped in f2_res.dat.
+    bool main_menu_classic_art = false;
+
     // Should the game window stretch all the way to the bottom or sit at the top of the interface bar (default).
     bool iface_bar_mode = false;
 

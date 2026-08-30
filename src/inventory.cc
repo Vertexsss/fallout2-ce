@@ -1,5 +1,9 @@
 #include "inventory.h"
 
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
+
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -4466,6 +4470,19 @@ static void inventoryWindowOpenContextMenu(int keyCode, int inventoryWindowType)
     Rect rect;
     rect.left = x - inventoryWindowX - cursorData->width / 2 + offsetX;
     rect.top = y - inventoryWindowY - cursorData->height + 1 + offsetY;
+#if __APPLE__ && TARGET_OS_IOS
+    // Touch: a menu centered under the finger is hidden by the finger. Put
+    // it beside the finger - a full menu width to the left when there is
+    // room, otherwise to the right.
+    {
+        int shiftedLeft = rect.left - cursorData->width;
+        if (shiftedLeft >= 0) {
+            rect.left = shiftedLeft;
+        } else {
+            rect.left = std::min(rect.left + cursorData->width, windowWidth - cursorData->width);
+        }
+    }
+#endif
     rect.right = rect.left + cursorData->width - 1;
     rect.bottom = rect.top + cursorData->height - 1;
 

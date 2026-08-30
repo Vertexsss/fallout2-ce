@@ -6271,8 +6271,6 @@ static int inventoryQuantitySelect(int inventoryWindowType, Object* item, int ma
     ScopedGameMode gm(GameMode::kCounter);
 
     inventoryQuantityWindowInit(inventoryWindowType, item);
-    // Digits can be typed - bring up the soft keyboard on touch platforms.
-    beginTextInput();
 
     int value;
     int min;
@@ -6295,7 +6293,6 @@ static int inventoryQuantitySelect(int inventoryWindowType, Object* item, int ma
 
         int keyCode = inputGetInput();
         if (keyCode == KEY_ESCAPE) {
-            endTextInput();
             inventoryQuantityWindowFree(inventoryWindowType);
             return -1;
         }
@@ -6426,7 +6423,6 @@ static int inventoryQuantitySelect(int inventoryWindowType, Object* item, int ma
         sharedFpsLimiter.throttle();
     }
 
-    endTextInput();
     inventoryQuantityWindowFree(inventoryWindowType);
 
     return value;

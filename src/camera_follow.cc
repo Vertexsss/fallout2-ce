@@ -48,7 +48,7 @@ void dudeOffsetFromCenter(int* dx, int* dy)
 
 void cameraFollowOnWalkRegistered(Object* owner)
 {
-    if (owner == nullptr || owner != gDude || !settings.ui.follow_hero) {
+    if (owner == nullptr || owner != gDude || !settings.ui.follow_hero || gDude->tile == -1) {
         return;
     }
 
@@ -79,7 +79,7 @@ void cameraFollowTick()
         return;
     }
 
-    if (!settings.ui.follow_hero || gDude == nullptr || !animationIsBusy(gDude)) {
+    if (!settings.ui.follow_hero || gDude == nullptr || gDude->tile == -1 || !animationIsBusy(gDude)) {
         // Walk finished (or the feature was switched off mid-walk).
         gActive = false;
         return;

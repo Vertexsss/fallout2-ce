@@ -4933,6 +4933,12 @@ static void wmTabsSnapToSlot()
     if (rem != 0) {
         wmInterfaceScrollTabsStart(rem < WM_TOWN_LIST_SLOT_HEIGHT / 2 ? -rem : WM_TOWN_LIST_SLOT_HEIGHT - rem);
     }
+    if (wmGenData.tabsScrollingDelta == 0) {
+        // Already on a slot (or the step could not start): put the engine
+        // buttons back at their fixed slots.
+        wmInterfaceScrollTabsStop();
+        wmRefreshInterfaceOverlay(true);
+    }
 }
 
 bool wmTouchTabsHitTest(int x, int y)
@@ -4954,17 +4960,20 @@ void wmTouchTabsPan(int dyPixels)
         return;
     }
     gWmTabsFlingVy = 0.0;
-    // Cancel a running step animation; the finger owns the list now.
+    // Cancel a running step animation; the finger owns the list now. The
+    // engine buttons sit at fixed slots - they stay disabled (and are drawn
+    // scrolled along with the labels by wmRefreshTabs) until the list
+    // settles on a slot again.
     wmGenData.tabsScrollingDelta = 0;
     for (int index = 0; index < WM_TOWN_LIST_VISIBLE_SLOT_COUNT; index++) {
-        buttonEnable(wmTownMapSubButtonIds[index]);
+        buttonDisable(wmTownMapSubButtonIds[index]);
     }
     // Content follows the finger: dragging down reveals earlier entries.
     int target = std::clamp(wmGenData.tabsOffsetY - dyPixels, 0, wmTabsMaxOffset());
     if (target != wmGenData.tabsOffsetY) {
         wmGenData.tabsOffsetY = target;
-        wmRefreshInterfaceOverlay(true);
     }
+    wmRefreshInterfaceOverlay(true);
 }
 
 void wmTouchTabsRelease(double fingerVelocityPxPerSec)
@@ -7299,6 +7308,45 @@ static int wmRefreshTabs()
                 WM_WINDOW_WIDTH);
 
             labelFrm.unlock();
+        }
+    }
+
+    // Touch: between slots the quick-destination buttons must travel with
+    // their labels. The engine buttons are pinned to fixed slots (and are
+    // disabled while the list is unaligned), so wipe their pixels back to
+    // the plate and draw the button art at the scrolled positions.
+    if (tabsOffsetWithinSlot != 0) {
+        int buttonWidth = wmGenData.redButtonNormalFrmImage.getWidth();
+        int buttonHeight = wmGenData.redButtonNormalFrmImage.getHeight();
+        int listTop = WM_TOWN_LIST_Y + 2;
+        int listBottom = WM_TOWN_LIST_Y + WM_TOWN_LIST_HEIGHT;
+
+        for (int index = 0; index < WM_TOWN_LIST_VISIBLE_SLOT_COUNT; index++) {
+            int slotY = 138 + WM_TOWN_LIST_SLOT_HEIGHT * index;
+            blitBufferToBuffer(_backgroundFrmImage.getData() + _backgroundFrmImage.getWidth() * slotY + 508,
+                buttonWidth,
+                buttonHeight,
+                _backgroundFrmImage.getWidth(),
+                wmBkWinBuf + WM_WINDOW_WIDTH * slotY + 508,
+                WM_WINDOW_WIDTH);
+        }
+
+        for (int index = 0; index <= WM_TOWN_LIST_VISIBLE_SLOT_COUNT; index++) {
+            if (firstVisibleLabelIndex + index >= wmLabelCount) {
+                break;
+            }
+            int y = 138 + WM_TOWN_LIST_SLOT_HEIGHT * index - tabsOffsetWithinSlot;
+            int top = std::max(y, listTop);
+            int bottom = std::min(y + buttonHeight, listBottom);
+            if (top >= bottom) {
+                continue;
+            }
+            blitBufferToBufferTrans(wmGenData.redButtonNormalFrmImage.getData() + buttonWidth * (top - y),
+                buttonWidth,
+                bottom - top,
+                buttonWidth,
+                wmBkWinBuf + WM_WINDOW_WIDTH * top + 508,
+                WM_WINDOW_WIDTH);
         }
     }
 

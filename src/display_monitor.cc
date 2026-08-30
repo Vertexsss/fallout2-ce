@@ -1,5 +1,9 @@
 #include "display_monitor.h"
 
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
+
 #include <math.h>
 #include <algorithm>
 #include <vector>
@@ -475,7 +479,9 @@ static void displayMonitorSnapToLine()
 
 bool displayMonitorTouchHitTest(int x, int y)
 {
-    if (!gDisplayMonitorInitialized || !gDisplayMonitorEnabled || gInterfaceBarWindow == -1) {
+    // Deliberately not gated on gDisplayMonitorEnabled: reading back the
+    // log while the enemy moves is harmless and wanted.
+    if (!gDisplayMonitorInitialized || gInterfaceBarWindow == -1) {
         return false;
     }
     Window* window = windowGetWindow(gInterfaceBarWindow);
@@ -588,8 +594,11 @@ static void displayMonitorOnMouseExit(int btn, int keyCode)
 void displayMonitorDisable()
 {
     if (gDisplayMonitorEnabled) {
+#if !(__APPLE__ && TARGET_OS_IOS)
+        // Touch build keeps the log scrollable during the enemy's turn.
         buttonDisable(gDisplayMonitorScrollDownButton);
         buttonDisable(gDisplayMonitorScrollUpButton);
+#endif
         gDisplayMonitorEnabled = false;
     }
 }
@@ -598,8 +607,10 @@ void displayMonitorDisable()
 void displayMonitorEnable()
 {
     if (!gDisplayMonitorEnabled) {
+#if !(__APPLE__ && TARGET_OS_IOS)
         buttonEnable(gDisplayMonitorScrollDownButton);
         buttonEnable(gDisplayMonitorScrollUpButton);
+#endif
         gDisplayMonitorEnabled = true;
     }
 }

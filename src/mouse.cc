@@ -463,6 +463,11 @@ static bool handleHudTapThrough(const Gesture& gesture)
 static int gGesturePrevX = 0;
 static int gGesturePrevY = 0;
 
+// Finger travel per one list-scroll wheel tick in touchscreen contexts.
+constexpr int kWheelStepPx = 32;
+static int gWheelAccumX = 0;
+static int gWheelAccumY = 0;
+
 // Posted for taps that arrive while the cursor is hidden (movies, loads):
 // "press any key" consumers see it, everything else ignores the code.
 constexpr int kHiddenCursorTapKeyCode = 2003;
@@ -653,14 +658,27 @@ void _mouse_info()
                     // Windowed screens (inventory, dialogs) interpret the
                     // wheel as list scrolling - keep that behavior there.
                     if (touch_get_touchscreen_mode()) {
-                        // prevx froze at the pan start here (the early break
-                        // skips the tail update), which made the wheel delta
-                        // grow with total finger travel - lists accelerated
-                        // instead of tracking the finger.
-                        gMouseWheelX = (gGesturePrevX - gesture.x) / 2;
-                        gMouseWheelY = (gesture.y - gGesturePrevY) / 2;
+                        // List consumers only look at the wheel's sign, one
+                        // row per event - so emitting a wheel tick on every
+                        // motion event scrolled by elapsed time, not finger
+                        // travel (a slow one-second drag flew through ~60
+                        // rows). Accumulate travel and tick once per
+                        // kWheelStepPx instead.
+                        if (gesture.state == kBegan) {
+                            gWheelAccumX = 0;
+                            gWheelAccumY = 0;
+                        }
+                        gWheelAccumX += gGesturePrevX - gesture.x;
+                        gWheelAccumY += gesture.y - gGesturePrevY;
                         gGesturePrevX = gesture.x;
                         gGesturePrevY = gesture.y;
+
+                        int ticksX = gWheelAccumX / kWheelStepPx;
+                        int ticksY = gWheelAccumY / kWheelStepPx;
+                        gWheelAccumX -= ticksX * kWheelStepPx;
+                        gWheelAccumY -= ticksY * kWheelStepPx;
+                        gMouseWheelX = ticksX;
+                        gMouseWheelY = ticksY;
                         if (gMouseWheelX != 0 || gMouseWheelY != 0) {
                             gMouseEvent |= MOUSE_EVENT_WHEEL;
                             _raw_buttons |= MOUSE_EVENT_WHEEL;

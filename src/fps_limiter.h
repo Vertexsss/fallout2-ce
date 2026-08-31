@@ -29,11 +29,15 @@ public:
     // Upper bound for the ACTIVE frame rate (battery lever: 30 halves the
     // rendering work during play; idle tiers stay below it anyway).
     void setFpsCap(unsigned int fps) { _fpsCap = fps != 0 ? fps : 60; }
+    // Cap at 30 while the system asks apps to save power (Low Power Mode /
+    // thermal pressure) - Apple's documented response for both.
+    void setAutoPower(bool on) { _autoPower = on; }
     void setIdleGrace(unsigned int ms) { _idleGraceMs = ms; }
 
 private:
     const unsigned int _fps;
     unsigned int _fpsCap = 60;
+    bool _autoPower = true;
     unsigned int _idleFps;
     unsigned int _idleGraceMs;
     unsigned int _ticks;

@@ -180,6 +180,7 @@ void initSettingsRegistry(bool isMapper)
     SETTING(follow_hero);
     SETTING(main_menu_classic_art);
     SETTING(eco_cores);
+    SETTING(auto_power);
     SETTING(dude_pointer);
     SETTING(iface_bar_mode);
     SETTING(perks_progress_bar);

@@ -1,6 +1,7 @@
 #include "fps_limiter.h"
 
 #include "eco_cores.h"
+#include "power_state.h"
 
 #include <SDL.h>
 
@@ -60,7 +61,11 @@ void FpsLimiter::throttle()
     constexpr unsigned int kDeepIdleFps = 5;
     bool deepIdle = false;
 
-    const unsigned int baseFps = _fps < _fpsCap ? _fps : _fpsCap;
+    unsigned int cap = _fpsCap;
+    if (_autoPower && cap > 30 && powerStateSaverRequested()) {
+        cap = 30;
+    }
+    const unsigned int baseFps = _fps < cap ? _fps : cap;
     unsigned int targetFps = baseFps;
     if (!gProgramIsActive) {
         // Window is not focused (backgrounded, Stage Manager, Slide Over).

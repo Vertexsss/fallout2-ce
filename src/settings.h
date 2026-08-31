@@ -88,6 +88,10 @@ struct UISettings {
     // Schedule the game on the efficiency cores (Apple Silicon).
     bool eco_cores = true;
 
+    // Cap the frame rate at 30 while Low Power Mode is on or the device
+    // runs hot (Apple's documented response to both states).
+    bool auto_power = true;
+
     // Should the game window stretch all the way to the bottom or sit at the top of the interface bar (default).
     bool iface_bar_mode = false;
 

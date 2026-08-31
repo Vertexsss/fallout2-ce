@@ -101,6 +101,8 @@ set(FALLOUT_ENGINE_SOURCES
     "src/draw.cc"
     "src/eco_cores.cc"
     "src/eco_cores.h"
+    "src/power_state.cc"
+    "src/power_state.h"
     "src/draw.h"
     "src/elevator.cc"
     "src/elevator.h"
@@ -437,6 +439,9 @@ if(APPLE)
 
         set(MACOSX_BUNDLE_BUNDLE_NAME "${EXECUTABLE_NAME}")
         set(MACOSX_BUNDLE_DISPLAY_NAME "Fallout 2")
+
+        # power_state.cc reaches NSProcessInfo through the ObjC runtime.
+        target_link_libraries(${EXECUTABLE_NAME} "-framework Foundation" objc)
     else()
         set(RESOURCES
             "os/macos/fallout2-ce.icns"

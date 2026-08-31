@@ -257,6 +257,17 @@ void ecoCoresNext()
     ecoCoresSetEnabled(settings.ui.eco_cores);
 }
 
+const char* autoPowerText()
+{
+    return settings.ui.auto_power ? "ON" : "OFF";
+}
+
+void autoPowerNext()
+{
+    settings.ui.auto_power = !settings.ui.auto_power;
+    sharedFpsLimiter.setAutoPower(settings.ui.auto_power);
+}
+
 const char* menuArtText()
 {
     return settings.ui.main_menu_classic_art ? "CLASSIC" : "HRP";
@@ -273,6 +284,7 @@ constexpr Row kRows[] = {
     { "IDLE FPS", idleFpsText, idleFpsNext },
     { "FPS CAP", fpsCapText, fpsCapNext },
     { "ECO CORES", ecoCoresText, ecoCoresNext },
+    { "AUTO POWER", autoPowerText, autoPowerNext },
     { "COLOR CYCLE SPEED", cycleText, cycleNext },
     { "FPS COUNTER", fpsCounterText, fpsCounterNext },
     { "TOUCH TOOLBAR", toolbarText, toolbarNext },

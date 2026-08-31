@@ -203,6 +203,7 @@ int _GNW95_init_mode_ex(int width, int height, int bpp)
 
     sharedFpsLimiter.setIdleFps(settings.screen.idle_fps);
     sharedFpsLimiter.setFpsCap(settings.screen.fps_cap);
+    sharedFpsLimiter.setAutoPower(settings.ui.auto_power);
     sharedFpsLimiter.setIdleGrace(settings.screen.idle_grace_ms);
 
     // Only allow scaling if resulting game resolution is >= 640x480

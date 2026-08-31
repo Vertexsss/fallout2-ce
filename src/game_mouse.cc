@@ -1,5 +1,7 @@
 #include "game_mouse.h"
 
+#include <limits.h>
+
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -688,9 +690,65 @@ void gameMouseRefresh()
         break;
     }
 
-    Rect r1;
-    if (_gmouse_3d_move_to(mouseX, mouseY, gElevation, &r1) == 0) {
-        tileWindowRefreshRect(&r1, gElevation);
+    // The hex and bouncing cursors are world objects: once placed, every
+    // scene refresh draws them along with everything else. Re-placing them
+    // (and re-rendering their rect) is only needed when something about
+    // them changed - doing it unconditionally kept a dirty rect alive on
+    // every frame, so the present early-out never fired on the game screen
+    // and an idle map still uploaded a cursor-sized rect 15 times a second.
+    {
+        static int lastX = INT_MIN;
+        static int lastY = INT_MIN;
+        static int lastElevation = -1;
+        static int lastMode = -1;
+        static int lastHexFid = -1;
+        static int lastBounceFid = -1;
+        static int lastHexTile = -1;
+        static unsigned int lastHexFlags = 0;
+        static int lastCenterTile = -1;
+        static int lastBiasX = INT_MIN;
+        static int lastBiasY = INT_MIN;
+
+        int biasX;
+        int biasY;
+        tileGetViewPixelBias(&biasX, &biasY);
+
+        if (mouseX != lastX || mouseY != lastY
+            || gElevation != lastElevation
+            || gGameMouseMode != lastMode
+            || gGameMouseHexCursor->fid != lastHexFid
+            || gGameMouseBouncingCursor->fid != lastBounceFid
+            || gGameMouseHexCursor->tile != lastHexTile
+            || gGameMouseHexCursor->flags != lastHexFlags
+            || gCenterTile != lastCenterTile
+            || biasX != lastBiasX
+            || biasY != lastBiasY) {
+            // Empty until _gmouse_3d_move_to writes it: near the map border
+            // (tileFromScreenXY == -1) it returns 0 without touching the
+            // rect, and the stack garbage became an arbitrarily large
+            // re-rendered region.
+            Rect r1;
+            r1.left = 0;
+            r1.top = 0;
+            r1.right = -1;
+            r1.bottom = -1;
+            if (_gmouse_3d_move_to(mouseX, mouseY, gElevation, &r1) == 0
+                && r1.right >= r1.left && r1.bottom >= r1.top) {
+                tileWindowRefreshRect(&r1, gElevation);
+            }
+
+            lastX = mouseX;
+            lastY = mouseY;
+            lastElevation = gElevation;
+            lastMode = gGameMouseMode;
+            lastHexFid = gGameMouseHexCursor->fid;
+            lastBounceFid = gGameMouseBouncingCursor->fid;
+            lastHexTile = gGameMouseHexCursor->tile;
+            lastHexFlags = gGameMouseHexCursor->flags;
+            lastCenterTile = gCenterTile;
+            lastBiasX = biasX;
+            lastBiasY = biasY;
+        }
     }
 
     if ((gGameMouseHexCursor->flags & OBJECT_HIDDEN) != OBJECT_NONE || _gmouse_mapper_mode != 0) {

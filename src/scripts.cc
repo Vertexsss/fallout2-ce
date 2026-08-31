@@ -524,7 +524,11 @@ int _scriptsCheckGameEvents(int* moviePtr, int window)
 
     if (endgame) {
         _game_user_wants_to_quit = GAME_QUIT_REQUEST_MAIN_MENU;
-    } else {
+    } else if (movie != -1) {
+        // Only a played movie can have clobbered the screen; the
+        // unconditional refresh re-rendered the whole iso view on every
+        // world-map iteration (inert today only because the world map
+        // disables tiles).
         tileWindowRefresh();
     }
 

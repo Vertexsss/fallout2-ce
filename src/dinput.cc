@@ -97,15 +97,25 @@ bool mouseDeviceUnacquire()
 }
 
 // 0x4E053C
+static bool gEventsPumpedExternally = false;
+
+void mouseDeviceMarkEventsPumped()
+{
+    gEventsPumpedExternally = true;
+}
+
 bool mouseDeviceGetData(MouseData* mouseState)
 {
     // CE: This function is sometimes called outside loops calling `get_input`
     // and subsequently `GNW95_process_message`, so mouse events might not be
-    // handled by SDL yet.
-    //
-    // TODO: Move mouse events processing into `GNW95_process_message` and
-    // update mouse position manually.
-    SDL_PumpEvents();
+    // handled by SDL yet. When the frame's pump already ran (the mark from
+    // GNW95_process_message), skip the second one - on iOS every pump spins
+    // the CFRunLoop.
+    if (gEventsPumpedExternally) {
+        gEventsPumpedExternally = false;
+    } else {
+        SDL_PumpEvents();
+    }
 
     // No physical mouse has ever spoken - SDL's mouse state is a stale
     // (0,0). Report nothing rather than a bogus absolute position.

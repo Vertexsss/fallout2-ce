@@ -1135,6 +1135,10 @@ void _GNW95_process_message()
 
     touch_process_gesture();
 
+    // The poll loop above already pumped SDL - the mouse poll this frame
+    // does not need to do it again.
+    mouseDeviceMarkEventsPumped();
+
     if (gProgramIsActive && !keyboardIsDisabled()) {
         // NOTE: Uninline
         int tick = getTicks();

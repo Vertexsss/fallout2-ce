@@ -29,6 +29,7 @@ void mouseDeviceSetLogicalPosition(int x, int y);
 bool mouseDeviceAcquire();
 bool mouseDeviceUnacquire();
 bool mouseDeviceGetData(MouseData* mouseData);
+void mouseDeviceMarkEventsPumped();
 bool keyboardDeviceAcquire();
 bool keyboardDeviceUnacquire();
 bool keyboardDeviceReset();

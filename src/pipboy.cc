@@ -940,6 +940,25 @@ static void pipboyDrawNumber(int value, int digits, int x, int y)
     }
 }
 
+// A rest tick redraws only the date/time digits and the HP readout - a
+// full 640x480 window refresh per tick defeated the dirty-rect pipeline
+// for the whole rest duration.
+static void pipboyRefreshRestVitals()
+{
+    Rect rect;
+    rect.left = PIPBOY_WINDOW_DAY_X;
+    rect.top = PIPBOY_WINDOW_TIME_Y;
+    rect.right = PIPBOY_WINDOW_TIME_X + 9 * 4 + 8;
+    rect.bottom = PIPBOY_WINDOW_TIME_Y + 17;
+    windowRefreshRect(gPipboyWindow, &rect);
+
+    rect.left = 254;
+    rect.top = 66;
+    rect.right = 254 + 350 - 1;
+    rect.bottom = 66 + 10 - 1;
+    windowRefreshRect(gPipboyWindow, &rect);
+}
+
 // 0x4979B4
 static void pipboyDrawDate()
 {
@@ -2334,7 +2353,7 @@ static bool pipboyRest(int hours, int minutes, int duration)
 
                     pipboyDrawNumber(gameTimeGetHour(), 4, PIPBOY_WINDOW_TIME_X, PIPBOY_WINDOW_TIME_Y);
                     pipboyDrawDate();
-                    windowRefresh(gPipboyWindow);
+                    pipboyRefreshRestVitals();
 
                     // subtle: convert to signed to avoid underflow
                     int elapsedMs = static_cast<int>(getTicks() - start);
@@ -2405,7 +2424,7 @@ static bool pipboyRest(int hours, int minutes, int duration)
                     pipboyDrawNumber(gameTimeGetHour(), 4, PIPBOY_WINDOW_TIME_X, PIPBOY_WINDOW_TIME_Y);
                     pipboyDrawDate();
                     pipboyDrawHitPoints();
-                    windowRefresh(gPipboyWindow);
+                    pipboyRefreshRestVitals();
 
                     // subtle: convert to signed to avoid underflow
                     int elapsedMs = static_cast<int>(getTicks() - start);

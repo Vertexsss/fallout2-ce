@@ -9,16 +9,32 @@
 
 namespace fallout {
 
-void applyEcoCores(bool enabled)
+static bool gEcoEnabled = true;
+static bool gEcoIdle = false;
+static int gEcoApplied = -1;
+
+static void ecoCoresApply()
 {
+    int want = (gEcoEnabled && gEcoIdle) ? 1 : 0;
+    if (want == gEcoApplied) {
+        return;
+    }
+    gEcoApplied = want;
 #if defined(__APPLE__) && TARGET_OS_IOS
-    // UTILITY prefers the E-cores; USER_INTERACTIVE is the UIKit main
-    // thread default. The game needs a few ms per frame - the E-cores
-    // handle that without dropping frames.
-    pthread_set_qos_class_self_np(enabled ? QOS_CLASS_UTILITY : QOS_CLASS_USER_INTERACTIVE, 0);
-#else
-    (void)enabled;
+    pthread_set_qos_class_self_np(want != 0 ? QOS_CLASS_UTILITY : QOS_CLASS_USER_INTERACTIVE, 0);
 #endif
+}
+
+void ecoCoresSetEnabled(bool enabled)
+{
+    gEcoEnabled = enabled;
+    ecoCoresApply();
+}
+
+void ecoCoresSetIdle(bool idle)
+{
+    gEcoIdle = idle;
+    ecoCoresApply();
 }
 
 } // namespace fallout

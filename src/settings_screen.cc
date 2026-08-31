@@ -254,7 +254,7 @@ const char* ecoCoresText()
 void ecoCoresNext()
 {
     settings.ui.eco_cores = !settings.ui.eco_cores;
-    applyEcoCores(settings.ui.eco_cores);
+    ecoCoresSetEnabled(settings.ui.eco_cores);
 }
 
 const char* menuArtText()

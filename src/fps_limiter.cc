@@ -1,5 +1,7 @@
 #include "fps_limiter.h"
 
+#include "eco_cores.h"
+
 #include <SDL.h>
 
 #include "win32.h"
@@ -27,6 +29,10 @@ void FpsLimiter::mark()
 
 void FpsLimiter::notifyActivity()
 {
+    // The user is doing something - full scheduling class right away, so
+    // the very frame that answers the touch is not timer-coalesced.
+    ecoCoresSetIdle(false);
+
     _lastActivityTicks = SDL_GetTicks();
 }
 
@@ -74,6 +80,10 @@ void FpsLimiter::throttle()
         targetFps = 1;
     }
     _lastTargetFps = targetFps;
+
+    // Idle tier engaged (or lost focus): allow eco scheduling. Apple's
+    // energy guide: utility-or-lower while no user activity is occurring.
+    ecoCoresSetIdle(targetFps < baseFps || !gProgramIsActive);
 
     const unsigned int minFrameTime = 1000 / baseFps;
     const unsigned int budget = 1000 / targetFps;

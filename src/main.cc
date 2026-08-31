@@ -94,7 +94,7 @@ int falloutMain(int argc, char** argv)
 
     mainParseCommandLineArguments(argc, argv);
 
-    applyEcoCores(settings.ui.eco_cores);
+    ecoCoresSetEnabled(settings.ui.eco_cores);
 
     // SFALL: Allow to skip intro movies
     int skipOpeningMovies = settings.ui.skip_opening_movies;

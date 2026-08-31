@@ -166,6 +166,7 @@ void initSettingsRegistry(bool isMapper)
     SETTING(mouse_lock);
     SETTING_P(scale, clamp(1, 4));
     SETTING_P(idle_fps, clamp(1, 60));
+    SETTING_P(fps_cap, clamp(30, 60));
     SETTING_P(idle_grace_ms, clamp(50, 10000));
     SETTING(native_resolution_x);
     SETTING(native_resolution_y);
@@ -178,6 +179,7 @@ void initSettingsRegistry(bool isMapper)
     SETTING(edge_scroll);
     SETTING(follow_hero);
     SETTING(main_menu_classic_art);
+    SETTING(eco_cores);
     SETTING(dude_pointer);
     SETTING(iface_bar_mode);
     SETTING(perks_progress_bar);

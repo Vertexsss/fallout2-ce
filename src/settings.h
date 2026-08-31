@@ -43,6 +43,10 @@ struct ScreenSettings {
     int idle_fps = 15;
     int idle_grace_ms = 400;
 
+    // Active frame rate cap (60 or 30). 30 halves per-frame work while
+    // playing at the cost of pan/scroll smoothness.
+    int fps_cap = 60;
+
     // Captured by the UI SCALE toggle the first time it is used, so the
     // native resolution can be restored after rendering at a reduced one.
     int native_resolution_x = 0;
@@ -80,6 +84,9 @@ struct UISettings {
     // Use the original 640x480 mainmenu.frm (aspect-fit) instead of the
     // High Resolution Patch picture shipped in f2_res.dat.
     bool main_menu_classic_art = false;
+
+    // Schedule the game on the efficiency cores (Apple Silicon).
+    bool eco_cores = true;
 
     // Should the game window stretch all the way to the bottom or sit at the top of the interface bar (default).
     bool iface_bar_mode = false;

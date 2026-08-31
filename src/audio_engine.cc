@@ -150,7 +150,10 @@ bool audioEngineInit()
     desiredSpec.freq = kAudioEngineTargetSampleRate;
     desiredSpec.format = AUDIO_S16;
     desiredSpec.channels = 2;
-    desiredSpec.samples = 1024;
+    // 2048 frames at 44.1kHz = ~46ms per callback, ~21 wakeups/s instead
+    // of 43. The mixer batches either way; speech/lips tolerate the
+    // coarser position granularity.
+    desiredSpec.samples = 2048;
     desiredSpec.callback = audioEngineMixin;
 
     int allowedChanges = SDL_AUDIO_ALLOW_FREQUENCY_CHANGE

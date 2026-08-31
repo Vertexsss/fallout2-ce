@@ -1,5 +1,7 @@
 #include "settings_screen.h"
 
+#include "eco_cores.h"
+
 #include <string.h>
 
 #include "color.h"
@@ -233,6 +235,28 @@ void fpsCounterNext()
     settings.debug.show_fps = !settings.debug.show_fps;
 }
 
+const char* fpsCapText()
+{
+    return settings.screen.fps_cap >= 60 ? "60" : "30";
+}
+
+void fpsCapNext()
+{
+    settings.screen.fps_cap = settings.screen.fps_cap >= 60 ? 30 : 60;
+    sharedFpsLimiter.setFpsCap(settings.screen.fps_cap);
+}
+
+const char* ecoCoresText()
+{
+    return settings.ui.eco_cores ? "ON" : "OFF";
+}
+
+void ecoCoresNext()
+{
+    settings.ui.eco_cores = !settings.ui.eco_cores;
+    applyEcoCores(settings.ui.eco_cores);
+}
+
 const char* menuArtText()
 {
     return settings.ui.main_menu_classic_art ? "CLASSIC" : "HRP";
@@ -247,6 +271,8 @@ constexpr Row kRows[] = {
     { "RENDER SCALE", scaleText, scaleNext },
     { "IFACE BAR MODE", barModeText, barModeNext },
     { "IDLE FPS", idleFpsText, idleFpsNext },
+    { "FPS CAP", fpsCapText, fpsCapNext },
+    { "ECO CORES", ecoCoresText, ecoCoresNext },
     { "COLOR CYCLE SPEED", cycleText, cycleNext },
     { "FPS COUNTER", fpsCounterText, fpsCounterNext },
     { "TOUCH TOOLBAR", toolbarText, toolbarNext },

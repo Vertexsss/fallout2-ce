@@ -1,5 +1,7 @@
 #include "main.h"
 
+#include "eco_cores.h"
+
 #include <algorithm>
 #include <limits.h>
 #include <stdlib.h>
@@ -91,6 +93,8 @@ int falloutMain(int argc, char** argv)
     }
 
     mainParseCommandLineArguments(argc, argv);
+
+    applyEcoCores(settings.ui.eco_cores);
 
     // SFALL: Allow to skip intro movies
     int skipOpeningMovies = settings.ui.skip_opening_movies;

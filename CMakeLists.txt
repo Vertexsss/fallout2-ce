@@ -99,6 +99,8 @@ set(FALLOUT_ENGINE_SOURCES
     "src/display_monitor.cc"
     "src/display_monitor.h"
     "src/draw.cc"
+    "src/eco_cores.cc"
+    "src/eco_cores.h"
     "src/draw.h"
     "src/elevator.cc"
     "src/elevator.h"

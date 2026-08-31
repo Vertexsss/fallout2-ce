@@ -54,7 +54,8 @@ void FpsLimiter::throttle()
     constexpr unsigned int kDeepIdleFps = 5;
     bool deepIdle = false;
 
-    unsigned int targetFps = _fps;
+    const unsigned int baseFps = _fps < _fpsCap ? _fps : _fpsCap;
+    unsigned int targetFps = baseFps;
     if (!gProgramIsActive) {
         // Window is not focused (backgrounded, Stage Manager, Slide Over).
         targetFps = 5;
@@ -74,7 +75,7 @@ void FpsLimiter::throttle()
     }
     _lastTargetFps = targetFps;
 
-    const unsigned int minFrameTime = 1000 / _fps;
+    const unsigned int minFrameTime = 1000 / baseFps;
     const unsigned int budget = 1000 / targetFps;
 
     // Hard part of the budget: never exceed the nominal frame rate.

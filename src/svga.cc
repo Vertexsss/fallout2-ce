@@ -694,9 +694,25 @@ static int isoRingWrap(int value, int size)
     return value < 0 ? value + size : value;
 }
 
+static bool gLoadingScreenFrozen = false;
+
 static bool isoGpuModeActive()
 {
+    if (gSdlRenderer == nullptr || gSdlTextureSurface == nullptr) {
+        return false;
+    }
     if (!settings.screen.gpu_iso) {
+        return false;
+    }
+    // The loading-screen freeze repairs gSdlTextureSurface - it must be
+    // what reaches the screen.
+    if (gLoadingScreenFrozen) {
+        return false;
+    }
+    // A movie covers everything and marks the full screen per frame -
+    // composing (and re-uploading) the hidden ring under it would double
+    // the upload for nothing.
+    if (_moviePlaying()) {
         return false;
     }
     if (gIsoWindow == -1) {
@@ -860,6 +876,50 @@ bool renderIsoPanShift(int screenDx, int screenDy)
         return false;
     }
     gIsoShiftSincePresent = true;
+
+    // Anything drawn into the iso buffer since the last present was marked
+    // at pre-shift coordinates; its ring cells now map one shift away and
+    // would ghost (the hex-cursor erase and the walking animation frame
+    // land here every pan frame). Re-mark those rects at their shifted
+    // positions as well.
+    SDL_Rect pending[kMaxDirtyRects];
+    int pendingCount = gDirtyRectCount;
+    memcpy(pending, gDirtyRects, sizeof(SDL_Rect) * pendingCount);
+    for (int i = 0; i < pendingCount; i++) {
+        SDL_Rect moved = pending[i];
+        moved.x -= screenDx;
+        moved.y -= screenDy;
+        renderMarkDirtyAmbient(&moved);
+    }
+
+    // Transparent windows above the iso window (touch overlay buttons) get
+    // recomposited by the suppressed refresh with their marks dropped -
+    // mark their rects explicitly.
+    {
+        Rect above[50];
+        int aboveCount = windowGetVisibleRectsAbove(gIsoWindow, above, 50);
+        for (int i = 0; i < aboveCount; i++) {
+            SDL_Rect wr;
+            wr.x = above[i].left;
+            wr.y = above[i].top;
+            wr.w = above[i].right - above[i].left + 1;
+            wr.h = above[i].bottom - above[i].top + 1;
+            renderMarkDirtyAmbient(&wr);
+        }
+    }
+
+    // The cached colour-cycle cell boxes travel with the content; without
+    // this, fires freeze mid-pan until the next presence rescan.
+    for (int i = 0; i < gCycleGridCols * gCycleGridRows; i++) {
+        CycleCell& cell = gCycleCells[i];
+        if (cell.maxX >= 0) {
+            cell.minX = static_cast<short>(cell.minX - screenDx);
+            cell.maxX = static_cast<short>(cell.maxX - screenDx);
+            cell.minY = static_cast<short>(cell.minY - screenDy);
+            cell.maxY = static_cast<short>(cell.maxY - screenDy);
+        }
+    }
+
     gIsoRingOx = isoRingWrap(gIsoRingOx + screenDx, gIsoRingW);
     gIsoRingOy = isoRingWrap(gIsoRingOy + screenDy, gIsoRingH);
     return true;
@@ -970,8 +1030,21 @@ void renderPresent()
     // presented frame, with the palette as it stands now.
     bool uploadFailed = false;
     bool ringSawFullRect = false;
+    constexpr int kMaxAboveRects = 50;
+    Rect aboveRects[kMaxAboveRects];
+    int aboveRectCount = 0;
+    bool cursorVisible = false;
+    Rect cursorRect = { 0, 0, -1, -1 };
     if (isoMode) {
         isoRingRebuildLut();
+        aboveRectCount = windowGetVisibleRectsAbove(gIsoWindow, aboveRects, kMaxAboveRects);
+        if (aboveRectCount < 0) {
+            aboveRectCount = 0;
+        }
+        cursorVisible = !cursorIsHidden();
+        if (cursorVisible) {
+            mouseGetRect(&cursorRect);
+        }
     }
     for (int i = 0; i < gDirtyRectCount; i++) {
         const SDL_Rect& r = gDirtyRects[i];
@@ -983,24 +1056,21 @@ void renderPresent()
         }
 
         bool classicTextureNeeded = true;
-        if (isoMode && r.y + r.h <= gIsoRingH) {
+        if (isoMode && gIsoRingContentValid && r.y + r.h <= gIsoRingH) {
             // The composed frame samples the classic texture only at the
             // windows above the iso window, the cursor and the debug
             // overlay - a pure-world rect need not reach the GPU twice.
             classicTextureNeeded = false;
 
-            Rect above[32];
-            int aboveCount = windowGetVisibleRectsAbove(gIsoWindow, above, 32);
             SDL_Rect probe;
-            for (int a = 0; a < aboveCount && !classicTextureNeeded; a++) {
-                SDL_Rect wr = { above[a].left, above[a].top,
-                    above[a].right - above[a].left + 1, above[a].bottom - above[a].top + 1 };
+            for (int a = 0; a < aboveRectCount && !classicTextureNeeded; a++) {
+                SDL_Rect wr = { aboveRects[a].left, aboveRects[a].top,
+                    aboveRects[a].right - aboveRects[a].left + 1, aboveRects[a].bottom - aboveRects[a].top + 1 };
                 classicTextureNeeded = SDL_IntersectRect(&r, &wr, &probe) == SDL_TRUE;
             }
-            if (!classicTextureNeeded && !cursorIsHidden()) {
-                Rect cur;
-                mouseGetRect(&cur);
-                SDL_Rect cr = { cur.left, cur.top, cur.right - cur.left + 1, cur.bottom - cur.top + 1 };
+            if (!classicTextureNeeded && cursorVisible) {
+                SDL_Rect cr = { cursorRect.left, cursorRect.top,
+                    cursorRect.right - cursorRect.left + 1, cursorRect.bottom - cursorRect.top + 1 };
                 classicTextureNeeded = SDL_IntersectRect(&r, &cr, &probe) == SDL_TRUE;
             }
             if (!classicTextureNeeded && settings.debug.show_fps) {
@@ -1053,15 +1123,12 @@ void renderPresent()
 
         // Everything above the iso window comes from the classic texture -
         // its pixels for exactly these rects are always freshly uploaded.
-        constexpr int kMaxAboveRects = 32;
-        Rect above[kMaxAboveRects];
-        int aboveCount = windowGetVisibleRectsAbove(gIsoWindow, above, kMaxAboveRects);
-        for (int i = 0; i < aboveCount; i++) {
+        for (int i = 0; i < aboveRectCount; i++) {
             SDL_Rect wr;
-            wr.x = above[i].left;
-            wr.y = above[i].top;
-            wr.w = above[i].right - above[i].left + 1;
-            wr.h = above[i].bottom - above[i].top + 1;
+            wr.x = aboveRects[i].left;
+            wr.y = aboveRects[i].top;
+            wr.w = aboveRects[i].right - aboveRects[i].left + 1;
+            wr.h = aboveRects[i].bottom - aboveRects[i].top + 1;
             SDL_Rect full = { 0, 0, gSdlTextureSurface->w, gSdlTextureSurface->h };
             SDL_Rect clipped;
             if (SDL_IntersectRect(&wr, &full, &clipped) == SDL_TRUE) {
@@ -1070,14 +1137,12 @@ void renderPresent()
         }
 
         // The software cursor is composited into the classic texture too.
-        if (!cursorIsHidden()) {
-            Rect cur;
-            mouseGetRect(&cur);
+        if (cursorVisible) {
             SDL_Rect cr;
-            cr.x = cur.left;
-            cr.y = cur.top;
-            cr.w = cur.right - cur.left + 1;
-            cr.h = cur.bottom - cur.top + 1;
+            cr.x = cursorRect.left;
+            cr.y = cursorRect.top;
+            cr.w = cursorRect.right - cursorRect.left + 1;
+            cr.h = cursorRect.bottom - cursorRect.top + 1;
             SDL_Rect full = { 0, 0, gSdlTextureSurface->w, gSdlTextureSurface->h };
             SDL_Rect clipped;
             if (SDL_IntersectRect(&cr, &full, &clipped) == SDL_TRUE) {
@@ -1117,6 +1182,16 @@ unsigned char* gLoadingScreenPixelsBackup = nullptr;
 void initLoadingScreenFreeze()
 {
     mouseHideCursor();
+
+    // The GPU pan skips CPU conversions for pure-world rects, so the
+    // texture surface can be behind the composite - complete it before
+    // snapshotting, and force the classic present while frozen (the
+    // freeze repairs gSdlTextureSurface; the ring would ignore it).
+    if (gSdlSurface != nullptr && gSdlTextureSurface != nullptr) {
+        SDL_BlitSurface(gSdlSurface, nullptr, gSdlTextureSurface, nullptr);
+    }
+    gLoadingScreenFrozen = true;
+
     // Calculate the total size of the screen surface buffer
     gLoadingScreenBackupSize = gSdlTextureSurface->pitch * gSdlTextureSurface->h;
 
@@ -1142,6 +1217,8 @@ void restoreLoadingScreenFreeze()
 
 void freeLoadingScreenFreeze()
 {
+    gLoadingScreenFrozen = false;
+
     if (gLoadingScreenPixelsBackup != nullptr) {
         free(gLoadingScreenPixelsBackup);
         gLoadingScreenPixelsBackup = nullptr;

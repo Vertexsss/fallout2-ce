@@ -291,6 +291,7 @@ void isoExit()
     artExit();
 
     windowDestroy(gIsoWindow);
+    gIsoWindow = -1;
 
     // NOTE: Uninline.
     mapGlobalVariablesFree();
@@ -742,12 +743,13 @@ static void isoWindowShiftPixels(int screenDx, int screenDy)
         // The cursor's image is baked into the ring with the world and
         // would otherwise trail behind (the previous bake now maps one
         // shift away).
+        // The classic texture is sampled at the cursor rect every frame;
+        // the world beneath the parked cursor changes with each shift, so
+        // that rect must re-upload. (The ring itself never holds the
+        // software cursor - it reads the iso window buffer.)
         if (!cursorIsHidden()) {
             Rect cur;
             mouseGetRect(&cur);
-            Rect prev = cur;
-            rectOffset(&prev, -screenDx, -screenDy);
-            rectUnion(&cur, &prev, &cur);
             Rect clipped;
             if (rectIntersection(&cur, &gIsoWindowRect, &clipped) == 0) {
                 mark.x = clipped.left;
@@ -951,12 +953,13 @@ int mapScroll(int dx, int dy, bool fastPaced)
             renderMarkDirtyAmbient(&mark);
         }
 
+        // The classic texture is sampled at the cursor rect every frame;
+        // the world beneath the parked cursor changes with each shift, so
+        // that rect must re-upload. (The ring itself never holds the
+        // software cursor - it reads the iso window buffer.)
         if (!cursorIsHidden()) {
             Rect cur;
             mouseGetRect(&cur);
-            Rect prev = cur;
-            rectOffset(&prev, -screenDx, -screenDy);
-            rectUnion(&cur, &prev, &cur);
             Rect clipped;
             if (rectIntersection(&cur, &gIsoWindowRect, &clipped) == 0) {
                 mark.x = clipped.left;

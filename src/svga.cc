@@ -654,14 +654,20 @@ void renderFpsCounter()
         height = gSdlSurface->h;
     }
 
-    bufferFill(static_cast<unsigned char*>(gSdlSurface->pixels), width, height, gSdlSurface->pitch, COLOR_BLACK);
+    // Bottom-left, over the interface bar: outside the GPU pan ring, so
+    // the per-frame mark can never merge with a pan strip (top-left it
+    // fused with the left strip into a 420x380 upload every frame - pans
+    // to one side cost 6x the other).
+    int overlayY = gSdlSurface->h - height;
+    unsigned char* overlayDest = static_cast<unsigned char*>(gSdlSurface->pixels) + static_cast<size_t>(overlayY) * gSdlSurface->pitch;
+    bufferFill(overlayDest, width, height, gSdlSurface->pitch, COLOR_BLACK);
     if (width > kPadding * 2 && height > kPadding * 2) {
-        fontDrawText(static_cast<unsigned char*>(gSdlSurface->pixels) + gSdlSurface->pitch * kPadding + kPadding, text, width - kPadding * 2, gSdlSurface->pitch, COLOR_LIGHT_GREY);
+        fontDrawText(overlayDest + gSdlSurface->pitch * kPadding + kPadding, text, width - kPadding * 2, gSdlSurface->pitch, COLOR_LIGHT_GREY);
     }
 
     SDL_Rect rect;
     rect.x = 0;
-    rect.y = 0;
+    rect.y = overlayY;
     rect.w = width;
     rect.h = height;
     // Ambient: the counter itself must not keep the idle limiter awake,
@@ -875,6 +881,16 @@ bool renderIsoPanShift(int screenDx, int screenDy)
         // to a full refresh for this frame.
         return false;
     }
+    if (gDirtyRectCount > 4) {
+        // A busy frame (many animation rects pending) would need them all
+        // re-marked at shifted positions; with the merge slack that
+        // degenerates into full-screen uploads WORSE than the classic
+        // path. Fall back to the classic full refresh for this frame -
+        // never worse than the old behavior, and calm frames (the vast
+        // majority of a pan) keep the ring win.
+        return false;
+    }
+
     gIsoShiftSincePresent = true;
 
     // Anything drawn into the iso buffer since the last present was marked
@@ -898,13 +914,20 @@ bool renderIsoPanShift(int screenDx, int screenDy)
     {
         Rect above[50];
         int aboveCount = windowGetVisibleRectsAbove(gIsoWindow, above, 50);
+        SDL_Rect isoArea = { 0, 0, gIsoRingW, gIsoRingH };
         for (int i = 0; i < aboveCount; i++) {
             SDL_Rect wr;
             wr.x = above[i].left;
             wr.y = above[i].top;
             wr.w = above[i].right - above[i].left + 1;
             wr.h = above[i].bottom - above[i].top + 1;
-            renderMarkDirtyAmbient(&wr);
+            // Only the part overlapping the iso view can be touched by the
+            // suppressed recomposite - marking the interface bar strips
+            // whole merged everything into full-screen rects.
+            SDL_Rect clippedAbove;
+            if (SDL_IntersectRect(&wr, &isoArea, &clippedAbove) == SDL_TRUE) {
+                renderMarkDirtyAmbient(&clippedAbove);
+            }
         }
     }
 
@@ -1073,10 +1096,6 @@ void renderPresent()
                     cursorRect.right - cursorRect.left + 1, cursorRect.bottom - cursorRect.top + 1 };
                 classicTextureNeeded = SDL_IntersectRect(&r, &cr, &probe) == SDL_TRUE;
             }
-            if (!classicTextureNeeded && settings.debug.show_fps) {
-                SDL_Rect fr = { 0, 0, 420, 16 };
-                classicTextureNeeded = SDL_IntersectRect(&r, &fr, &probe) == SDL_TRUE;
-            }
         }
 
         const unsigned char* pixels = static_cast<const unsigned char*>(gSdlTextureSurface->pixels)
@@ -1150,9 +1169,12 @@ void renderPresent()
             }
         }
 
-        // Debug FPS overlay draws straight onto the surface at the corner.
+        // Debug FPS overlay lives in the interface-bar area now, but that
+        // bar may be hidden (worldmap) - draw its strip from the classic
+        // texture explicitly.
         if (settings.debug.show_fps) {
-            SDL_Rect fr = { 0, 0, gSdlTextureSurface->w < 420 ? gSdlTextureSurface->w : 420, 16 };
+            int oy = gSdlTextureSurface->h - 16;
+            SDL_Rect fr = { 0, oy, gSdlTextureSurface->w < 420 ? gSdlTextureSurface->w : 420, 16 };
             SDL_RenderCopy(gSdlRenderer, gSdlTexture, &fr, &fr);
         }
     } else {
@@ -1160,9 +1182,11 @@ void renderPresent()
     }
     // render movie SDL texture if present
     // render movie SDL texture if present
+    // render movie SDL texture if present
     movieRenderDirectOverlay();
 
     SDL_RenderPresent(gSdlRenderer);
+    gIsoShiftSincePresent = false;
     gIsoShiftSincePresent = false;
     gIsoShiftSincePresent = false;
 

@@ -1,5 +1,7 @@
 #include "elevator.h"
 
+#include "mouse.h"
+
 #include <ctype.h>
 #include <string.h>
 
@@ -425,6 +427,23 @@ int elevatorSelectLevel(int elevator, Map* mapPtr, int* elevationPtr, int* tileP
         sharedFpsLimiter.mark();
 
         keyCode = inputGetInput();
+
+        // Touch: tapping outside the panel closes it ("stay on this
+        // floor") - the only other way out is Esc, which on the iPad is
+        // the three-finger swipe.
+        if (keyCode == -1 && (mouseGetEvent() & MOUSE_EVENT_LEFT_BUTTON_UP) != 0) {
+            Rect elevatorRect;
+            if (windowGetRect(gElevatorWindow, &elevatorRect) == 0) {
+                int mouseX;
+                int mouseY;
+                mouseGetPosition(&mouseX, &mouseY);
+                if (mouseX < elevatorRect.left || mouseX > elevatorRect.right
+                    || mouseY < elevatorRect.top || mouseY > elevatorRect.bottom) {
+                    keyCode = KEY_ESCAPE;
+                }
+            }
+        }
+
         if (keyCode == KEY_ESCAPE) {
             keyCode = elevatorGetLevelFromEscKey(elevator, *mapPtr);
             skipGauge = true;

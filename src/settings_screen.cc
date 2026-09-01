@@ -24,7 +24,11 @@ namespace {
 
 constexpr int kWindowWidth = 380;
 constexpr int kTitleHeight = 32;
-constexpr int kRowHeight = 30;
+// Shrinks when the logical screen is short (RENDER SCALE 2X and small
+// windows): 17 rows at 30px no longer fit 410-480 lines, and a window
+// taller than the screen cannot be created at all - the CFG button then
+// silently did nothing.
+int gRowHeight = 30;
 constexpr int kFooterHeight = 56;
 constexpr int kRowPadding = 12;
 constexpr int kValueBoxWidth = 110;
@@ -308,7 +312,7 @@ constexpr Row kRows[] = {
     { "MENU ART", menuArtText, menuArtNext },
 };
 constexpr int kRowCount = static_cast<int>(sizeof(kRows) / sizeof(kRows[0]));
-constexpr int kWindowHeight = kTitleHeight + kRowCount * kRowHeight + kFooterHeight;
+int gWindowHeight = kTitleHeight + kRowCount * 30 + kFooterHeight;
 
 void fillRect(unsigned char* buffer, int pitch, int x, int y, int w, int h, Color color)
 {
@@ -336,12 +340,12 @@ void paint(int win, int selected)
     const Color labelColor = intensityColorTable[COLOR_WHITE][44];
     const Color dimColor = intensityColorTable[COLOR_WHITE][28];
 
-    fillRect(buffer, kWindowWidth, 0, 0, kWindowWidth, kWindowHeight, panel);
+    fillRect(buffer, kWindowWidth, 0, 0, kWindowWidth, gWindowHeight, panel);
     // outer border
     fillRect(buffer, kWindowWidth, 0, 0, kWindowWidth, 1, border);
-    fillRect(buffer, kWindowWidth, 0, kWindowHeight - 1, kWindowWidth, 1, border);
-    fillRect(buffer, kWindowWidth, 0, 0, 1, kWindowHeight, border);
-    fillRect(buffer, kWindowWidth, kWindowWidth - 1, 0, 1, kWindowHeight, border);
+    fillRect(buffer, kWindowWidth, 0, gWindowHeight - 1, kWindowWidth, 1, border);
+    fillRect(buffer, kWindowWidth, 0, 0, 1, gWindowHeight, border);
+    fillRect(buffer, kWindowWidth, kWindowWidth - 1, 0, 1, gWindowHeight, border);
 
     int lineHeight = fontGetLineHeight();
 
@@ -351,26 +355,26 @@ void paint(int win, int selected)
     fillRect(buffer, kWindowWidth, kRowPadding, kTitleHeight - 2, kWindowWidth - 2 * kRowPadding, 1, border);
 
     for (int i = 0; i < kRowCount; i++) {
-        int rowY = kTitleHeight + i * kRowHeight;
+        int rowY = kTitleHeight + i * gRowHeight;
         if (i == selected) {
-            fillRect(buffer, kWindowWidth, 2, rowY + 1, kWindowWidth - 4, kRowHeight - 2, panelSelected);
+            fillRect(buffer, kWindowWidth, 2, rowY + 1, kWindowWidth - 4, gRowHeight - 2, panelSelected);
         }
-        int textY = rowY + (kRowHeight - lineHeight) / 2 + 2;
+        int textY = rowY + (gRowHeight - lineHeight) / 2 + 2;
         drawTextAt(buffer, kWindowWidth, kRowPadding, textY, kRows[i].label, labelColor);
 
         // value box, right-aligned
         int boxX = kWindowWidth - kRowPadding - kValueBoxWidth;
-        fillRect(buffer, kWindowWidth, boxX, rowY + 3, kValueBoxWidth, kRowHeight - 6, panel);
+        fillRect(buffer, kWindowWidth, boxX, rowY + 3, kValueBoxWidth, gRowHeight - 6, panel);
         fillRect(buffer, kWindowWidth, boxX, rowY + 3, kValueBoxWidth, 1, border);
-        fillRect(buffer, kWindowWidth, boxX, rowY + kRowHeight - 4, kValueBoxWidth, 1, border);
-        fillRect(buffer, kWindowWidth, boxX, rowY + 3, 1, kRowHeight - 6, border);
-        fillRect(buffer, kWindowWidth, boxX + kValueBoxWidth - 1, rowY + 3, 1, kRowHeight - 6, border);
+        fillRect(buffer, kWindowWidth, boxX, rowY + gRowHeight - 4, kValueBoxWidth, 1, border);
+        fillRect(buffer, kWindowWidth, boxX, rowY + 3, 1, gRowHeight - 6, border);
+        fillRect(buffer, kWindowWidth, boxX + kValueBoxWidth - 1, rowY + 3, 1, gRowHeight - 6, border);
         const char* value = kRows[i].text();
         int valueX = boxX + (kValueBoxWidth - fontGetStringWidth(value)) / 2;
         drawTextAt(buffer, kWindowWidth, valueX, textY, value, textColor);
     }
 
-    int footerY = kTitleHeight + kRowCount * kRowHeight;
+    int footerY = kTitleHeight + kRowCount * gRowHeight;
     drawTextAt(buffer, kWindowWidth, kRowPadding, footerY + 6, "* TAKES EFFECT AFTER RESTART", dimColor);
 
     // close button
@@ -392,9 +396,20 @@ void paint(int win, int selected)
 
 void settingsScreenShow()
 {
+    gRowHeight = (screenGetHeight() - kTitleHeight - kFooterHeight) / kRowCount;
+    if (gRowHeight > 30) {
+        gRowHeight = 30;
+    } else if (gRowHeight < 14) {
+        gRowHeight = 14;
+    }
+    gWindowHeight = kTitleHeight + kRowCount * gRowHeight + kFooterHeight;
+
     int windowX = (screenGetWidth() - kWindowWidth) / 2;
-    int windowY = (screenGetHeight() - kWindowHeight) / 2;
-    int win = windowCreate(windowX, windowY, kWindowWidth, kWindowHeight, COLOR_BLACK, WINDOW_MODAL | WINDOW_MOVE_ON_TOP);
+    int windowY = (screenGetHeight() - gWindowHeight) / 2;
+    if (windowY < 0) {
+        windowY = 0;
+    }
+    int win = windowCreate(windowX, windowY, kWindowWidth, gWindowHeight, COLOR_BLACK, WINDOW_MODAL | WINDOW_MOVE_ON_TOP);
     if (win == -1) {
         return;
     }
@@ -409,10 +424,10 @@ void settingsScreenShow()
 
     // invisible hotspot buttons: whole row cycles the value, footer closes
     for (int i = 0; i < kRowCount; i++) {
-        buttonCreate(win, 2, kTitleHeight + i * kRowHeight + 1, kWindowWidth - 4, kRowHeight - 2,
+        buttonCreate(win, 2, kTitleHeight + i * gRowHeight + 1, kWindowWidth - 4, gRowHeight - 2,
             -1, -1, -1, kKeyRowBase + i);
     }
-    int footerY = kTitleHeight + kRowCount * kRowHeight;
+    int footerY = kTitleHeight + kRowCount * gRowHeight;
     buttonCreate(win, (kWindowWidth - 90) / 2, footerY + kFooterHeight - 32, 90, 24,
         -1, -1, -1, kKeyClose);
 

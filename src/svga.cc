@@ -1094,9 +1094,11 @@ void renderPresent()
         SDL_RenderCopy(gSdlRenderer, gSdlTexture, nullptr, nullptr);
     }
     // render movie SDL texture if present
+    // render movie SDL texture if present
     movieRenderDirectOverlay();
 
     SDL_RenderPresent(gSdlRenderer);
+    gIsoShiftSincePresent = false;
     gIsoShiftSincePresent = false;
 
     // A transiently failed texture upload (Metal around app suspension)

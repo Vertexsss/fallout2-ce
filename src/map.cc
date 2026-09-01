@@ -927,6 +927,49 @@ int mapScroll(int dx, int dy, bool fastPaced)
         _map_scroll_refresh(&r1);
     }
 
+    if (renderIsoPanShift(screenDx, screenDy)) {
+        // Same GPU pan path as isoWindowShiftPixels: composite the whole
+        // window into the surface without marks, mark only the strips and
+        // the cursor's neighborhood.
+        renderSetMarkSuppressed(true);
+        windowRefresh(gIsoWindow);
+        renderSetMarkSuppressed(false);
+
+        SDL_Rect mark;
+        if (screenDx != 0) {
+            mark.x = r2.left;
+            mark.y = r2.top;
+            mark.w = r2.right - r2.left + 1;
+            mark.h = r2.bottom - r2.top + 1;
+            renderMarkDirtyAmbient(&mark);
+        }
+        if (screenDy != 0) {
+            mark.x = r1.left;
+            mark.y = r1.top;
+            mark.w = r1.right - r1.left + 1;
+            mark.h = r1.bottom - r1.top + 1;
+            renderMarkDirtyAmbient(&mark);
+        }
+
+        if (!cursorIsHidden()) {
+            Rect cur;
+            mouseGetRect(&cur);
+            Rect prev = cur;
+            rectOffset(&prev, -screenDx, -screenDy);
+            rectUnion(&cur, &prev, &cur);
+            Rect clipped;
+            if (rectIntersection(&cur, &gIsoWindowRect, &clipped) == 0) {
+                mark.x = clipped.left;
+                mark.y = clipped.top;
+                mark.w = clipped.right - clipped.left + 1;
+                mark.h = clipped.bottom - clipped.top + 1;
+                renderMarkDirtyAmbient(&mark);
+            }
+        }
+
+        return 0;
+    }
+
     windowRefresh(gIsoWindow);
 
     return 0;

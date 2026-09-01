@@ -1,6 +1,7 @@
 #include "cycle.h"
 
 #include "combat.h"
+#include "fps_limiter.h"
 
 #include "color.h"
 #include "input.h"
@@ -327,6 +328,12 @@ void colorCycleTicker()
         palette[paletteIndex++] = bobber_red;
         palette[paletteIndex++] = 0;
         palette[paletteIndex++] = 0;
+    }
+
+    if (changed && isInCombat()) {
+        // The combat outlines pulse through these entries - sampling the
+        // full-speed pulse at the idle frame rate aliases visibly.
+        sharedFpsLimiter.notifyActivity();
     }
 
     if (changed) {

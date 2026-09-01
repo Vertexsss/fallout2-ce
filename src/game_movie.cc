@@ -239,16 +239,7 @@ int gameMoviePlay(int movie, int flags)
         mouseShowCursor();
     }
 
-    // Let pending mouse events settle before the movie - but never spin:
-    // the vanilla unbounded loop burned a full core with no sleep, no
-    // tickers and no presents whenever the mouse state could not clear (a
-    // finger or synthetic tap hold spanning the transition, or a focus /
-    // physical-mouse race keeping a button flag latched).
-    unsigned int mouseDrainStart = SDL_GetTicks();
-    while (mouseGetEvent() != 0 && SDL_GetTicks() - mouseDrainStart < 250) {
-        _mouse_info();
-        delay_ms(1);
-    }
+    mouseSettleEvents(250);
 
     mouseHideCursor();
     colorCycleDisable();
@@ -261,7 +252,12 @@ int gameMoviePlay(int movie, int flags)
     int pressed = 0;
     int buttons;
     do {
-        if (!_moviePlaying() || _game_user_wants_to_quit || inputGetInput() != -1) {
+        // -2 only means "some mouse event exists" - the loop's own
+        // press-then-release logic below decides mouse skipping; treating
+        // it as a key skipped every movie when a button flag was latched
+        // across the transition.
+        int inputEvent = inputGetInput();
+        if (!_moviePlaying() || _game_user_wants_to_quit || (inputEvent != -1 && inputEvent != -2)) {
             break;
         }
 

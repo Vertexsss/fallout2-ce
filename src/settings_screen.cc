@@ -1,5 +1,7 @@
 #include "settings_screen.h"
 
+#include <stdio.h>
+
 #include "eco_cores.h"
 
 #include <string.h>
@@ -241,7 +243,10 @@ void fpsCounterNext()
 
 const char* fpsCapText()
 {
-    return settings.screen.fps_cap >= 60 ? "60" : "30";
+    // The cfg accepts any 30..60 - show what actually applies.
+    static char buf[8];
+    snprintf(buf, sizeof(buf), "%d", settings.screen.fps_cap);
+    return buf;
 }
 
 void fpsCapNext()
@@ -396,11 +401,20 @@ void paint(int win, int selected)
 
 void settingsScreenShow()
 {
+    int oldFont = fontGetCurrent();
+    fontSetCurrent(101);
+
     gRowHeight = (screenGetHeight() - kTitleHeight - kFooterHeight) / kRowCount;
     if (gRowHeight > 30) {
         gRowHeight = 30;
-    } else if (gRowHeight < 14) {
-        gRowHeight = 14;
+    }
+    // Never below the row's own text (a replacement font can be taller).
+    int minRowHeight = fontGetLineHeight() + 4;
+    if (minRowHeight < 14) {
+        minRowHeight = 14;
+    }
+    if (gRowHeight < minRowHeight) {
+        gRowHeight = minRowHeight;
     }
     gWindowHeight = kTitleHeight + kRowCount * gRowHeight + kFooterHeight;
 
@@ -413,9 +427,6 @@ void settingsScreenShow()
     if (win == -1) {
         return;
     }
-
-    int oldFont = fontGetCurrent();
-    fontSetCurrent(101);
 
     // Like the other UI screens: taps land where the finger is, not where
     // the trackpad-style world cursor happens to be.

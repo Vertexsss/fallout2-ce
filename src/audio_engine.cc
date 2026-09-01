@@ -192,7 +192,11 @@ void audioEngineMaintenance()
     }
 
     // ~5 seconds of silent callbacks at 44100/1024 = ~43 callbacks/s.
-    constexpr int kSilentCallbacksBeforePause = 215;
+    // ~5 seconds of silence at the REAL callback rate (the device may have
+    // changed our requested buffer size).
+    const int kSilentCallbacksBeforePause = gAudioEngineSpec.samples > 0
+        ? 5 * gAudioEngineSpec.freq / gAudioEngineSpec.samples
+        : 215;
 
     if (!gAudioPausedBySilence
         && SDL_AtomicGet(&gAudioSilentCallbacks) >= kSilentCallbacksBeforePause) {
@@ -451,7 +455,10 @@ bool audioEngineSoundBufferGetPlaybackPosition(int soundBufferIndex, unsigned in
 
     unsigned int pos = soundBuffer->pos;
     if (soundBuffer->stream != nullptr) {
-        int queuedDst = SDL_AudioStreamAvailable(soundBuffer->stream);
+        // Resampler backlog plus one device buffer: both are queued but not
+        // yet audible (the device buffer alone is ~46ms at 2048 frames).
+        int queuedDst = SDL_AudioStreamAvailable(soundBuffer->stream)
+            + gAudioEngineSpec.samples * gAudioEngineSpec.channels * (SDL_AUDIO_BITSIZE(gAudioEngineSpec.format) / 8);
         if (queuedDst > 0) {
             long long srcByteRate = (long long)soundBuffer->rate * soundBuffer->channels * (soundBuffer->bitsPerSample / 8);
             long long dstByteRate = (long long)gAudioEngineSpec.freq * gAudioEngineSpec.channels * (SDL_AUDIO_BITSIZE(gAudioEngineSpec.format) / 8);

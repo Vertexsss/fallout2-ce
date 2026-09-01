@@ -511,14 +511,7 @@ static void showDeath()
                 break;
             }
 
-            while (mouseGetEvent() != 0) {
-                sharedFpsLimiter.mark();
-
-                inputGetInput();
-
-                renderPresent();
-                sharedFpsLimiter.throttle();
-            }
+            mouseSettleEvents(250);
 
             keyboardReset();
             inputEventQueueReset();
@@ -590,14 +583,7 @@ static void showDeath()
 
             speechDelete();
 
-            while (mouseGetEvent() != 0) {
-                sharedFpsLimiter.mark();
-
-                inputGetInput();
-
-                renderPresent();
-                sharedFpsLimiter.throttle();
-            }
+            mouseSettleEvents(250);
 
             if (keyCode == -1) {
                 inputPauseForTocks(500);

@@ -480,14 +480,7 @@ static void endgameEndingRenderPanningScene(int direction, const char* narratorF
         windowRefresh(gEndgameEndingSlideshowWindow);
     }
 
-    while (mouseGetEvent() != 0) {
-        sharedFpsLimiter.mark();
-
-        inputGetInput();
-
-        renderPresent();
-        sharedFpsLimiter.throttle();
-    }
+    mouseSettleEvents(250);
 }
 
 // 0x440004 endgame_display_image
@@ -573,14 +566,7 @@ static void endgameEndingRenderStaticScene(int fid, const char* narratorFileName
 
         paletteFadeTo(gPaletteBlack);
 
-        while (mouseGetEvent() != 0) {
-            sharedFpsLimiter.mark();
-
-            inputGetInput();
-
-            renderPresent();
-            sharedFpsLimiter.throttle();
-        }
+        mouseSettleEvents(250);
     }
 
     artUnlock(backgroundHandle);

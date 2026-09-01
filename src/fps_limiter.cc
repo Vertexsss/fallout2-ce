@@ -60,6 +60,7 @@ void FpsLimiter::throttle()
     constexpr unsigned int kDeepGraceMs = 20000;
     constexpr unsigned int kDeepIdleFps = 5;
     bool deepIdle = false;
+    bool idleTier = false;
 
     unsigned int cap = _fpsCap;
     if (_autoPower && cap > 30 && powerStateSaverRequested()) {
@@ -73,6 +74,7 @@ void FpsLimiter::throttle()
     } else if (now - _lastActivityTicks > _idleGraceMs) {
         // Nothing has been drawn for a while - the screen is static.
         targetFps = _idleFps;
+        idleTier = true;
 
         if (now - _lastActivityTicks > kDeepGraceMs
             && _lastPresentTicks != 0 && now - _lastPresentTicks > kDeepGraceMs) {
@@ -88,7 +90,10 @@ void FpsLimiter::throttle()
 
     // Idle tier engaged (or lost focus): allow eco scheduling. Apple's
     // energy guide: utility-or-lower while no user activity is occurring.
-    ecoCoresSetIdle(targetFps < baseFps || !gProgramIsActive);
+    // Derived from the tier itself: comparing against the capped baseFps
+    // DISABLED eco exactly when AUTO POWER lowered the cap to the idle
+    // rate (entering Low Power Mode pushed the thread back to P-cores).
+    ecoCoresSetIdle(idleTier || !gProgramIsActive);
 
     const unsigned int minFrameTime = 1000 / baseFps;
     const unsigned int budget = 1000 / targetFps;

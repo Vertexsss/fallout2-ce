@@ -1,5 +1,7 @@
 #include "mouse.h"
 
+#include "delay.h"
+
 #include "camera_follow.h"
 #include "display_monitor.h"
 #include "worldmap.h"
@@ -495,6 +497,21 @@ bool mouseTouchTapHoldActive()
 
 // Ends a pan that was routed to a scrollable list without waiting for its
 // kEnded (the gesture backlog was discarded).
+// Wait for the mouse event state to settle before a modal transition -
+// bounded (a latched flag from a held finger or a focus race must not hang
+// the game), and whatever cannot settle is cleared: a leaked button event
+// reads as input and would instantly skip the movie or slide that follows.
+void mouseSettleEvents(unsigned int maxMs)
+{
+    unsigned int start = SDL_GetTicks();
+    while (mouseGetEvent() != 0 && SDL_GetTicks() - start < maxMs) {
+        _mouse_info();
+        delay_ms(1);
+    }
+    gMouseEvent = 0;
+    _raw_buttons = 0;
+}
+
 void mouseTouchScrollCancel()
 {
     if (gTouchScrollTarget == kTouchScrollTabs) {

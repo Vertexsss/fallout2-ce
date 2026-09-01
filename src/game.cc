@@ -1276,14 +1276,7 @@ void showHelp()
                     sharedFpsLimiter.throttle();
                 }
 
-                while (mouseGetEvent() != 0) {
-                    sharedFpsLimiter.mark();
-
-                    inputGetInput();
-
-                    renderPresent();
-                    sharedFpsLimiter.throttle();
-                }
+                mouseSettleEvents(250);
 
                 paletteSetEntries(gPaletteBlack);
             }

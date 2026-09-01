@@ -1,5 +1,7 @@
 #include "cycle.h"
 
+#include "combat.h"
+
 #include "color.h"
 #include "input.h"
 #include "palette.h"
@@ -214,7 +216,13 @@ void colorCycleTicker()
     unsigned char* palette = _getSystemPalette();
     unsigned int time = getTicks();
 
-    if (getTicksBetween(time, last_cycle_slow) >= kSlowCyclePeriod * gColorCycleSpeedFactor) {
+    // The battery slowdown factor must not slow COMBAT: the hostile
+    // outline pulses through the fire_fast range (243) and the friendly
+    // one through slime (229) - at 1/4 speed they crawl. Fires briefly
+    // speeding back up during a fight is the lesser evil.
+    int speedFactor = isInCombat() ? 1 : gColorCycleSpeedFactor;
+
+    if (getTicksBetween(time, last_cycle_slow) >= kSlowCyclePeriod * speedFactor) {
         changed = true;
         last_cycle_slow = time;
 
@@ -264,7 +272,7 @@ void colorCycleTicker()
         }
     }
 
-    if (getTicksBetween(time, last_cycle_medium) >= kMediumCyclePeriod * gColorCycleSpeedFactor) {
+    if (getTicksBetween(time, last_cycle_medium) >= kMediumCyclePeriod * speedFactor) {
         changed = true;
         last_cycle_medium = time;
 
@@ -284,7 +292,7 @@ void colorCycleTicker()
         }
     }
 
-    if (getTicksBetween(time, last_cycle_fast) >= kFastCyclePeriod * gColorCycleSpeedFactor) {
+    if (getTicksBetween(time, last_cycle_fast) >= kFastCyclePeriod * speedFactor) {
         changed = true;
         last_cycle_fast = time;
 
@@ -305,7 +313,7 @@ void colorCycleTicker()
         }
     }
 
-    if (getTicksBetween(time, last_cycle_very_fast) >= kVeryFastCyclePeriod * gColorCycleSpeedFactor) {
+    if (getTicksBetween(time, last_cycle_very_fast) >= kVeryFastCyclePeriod * speedFactor) {
         changed = true;
         last_cycle_very_fast = time;
 

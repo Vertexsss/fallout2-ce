@@ -1,4 +1,6 @@
 #include "game.h"
+
+#include "dinput.h"
 #include "platform/git_version.h"
 
 #include <stdio.h>
@@ -1768,11 +1770,17 @@ void renderLoadingScreenCursor()
     }
     // Wipe out any partial map rendering by restoring the clean menu background
     restoreLoadingScreenFreeze();
-    // Set mouse position
+    // Sync the cursor to the OS mouse - but only when a physical mouse
+    // exists and reports absolute coordinates. Without one (touch
+    // devices) SDL_GetMouseState returns (0,0), which parked the cursor
+    // in the top-left corner after every load - a quirk as old as the
+    // original engine's DirectInput reset.
     SDL_PumpEvents();
-    int x, y;
-    SDL_GetMouseState(&x, &y);
-    _mouse_set_position(x, y);
+    if (mouseDeviceHasPhysicalMouse() && !mouseDeviceUsesRelativeMode()) {
+        int x, y;
+        SDL_GetMouseState(&x, &y);
+        _mouse_set_position(x, y);
+    }
     mouseShowCursor();
 
     // Present the compiled frame onto the display

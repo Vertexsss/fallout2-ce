@@ -1,5 +1,7 @@
 #include "map.h"
 
+#include "mouse.h"
+
 #include "camera_follow.h"
 
 #include <assert.h>
@@ -708,6 +710,54 @@ static void isoWindowShiftPixels(int screenDx, int screenDy)
 
     if (screenDy != 0) {
         _map_scroll_refresh(&r1);
+    }
+
+    if (renderIsoPanShift(screenDx, screenDy)) {
+        // GPU pan: the interior travels inside the ring texture. The whole
+        // window is still composited into the CPU surface (an 8-bit blit -
+        // cheap; the conversion and upload were the cost), so the surface
+        // stays current and dirty-rect merges can never smear stale pixels
+        // into the ring. Only the exposed strips and the cursor's
+        // neighborhood are MARKED for upload.
+        renderSetMarkSuppressed(true);
+        windowRefresh(gIsoWindow);
+        renderSetMarkSuppressed(false);
+
+        SDL_Rect mark;
+        if (screenDx != 0) {
+            mark.x = r2.left;
+            mark.y = r2.top;
+            mark.w = r2.right - r2.left + 1;
+            mark.h = r2.bottom - r2.top + 1;
+            renderMarkDirtyAmbient(&mark);
+        }
+        if (screenDy != 0) {
+            mark.x = r1.left;
+            mark.y = r1.top;
+            mark.w = r1.right - r1.left + 1;
+            mark.h = r1.bottom - r1.top + 1;
+            renderMarkDirtyAmbient(&mark);
+        }
+
+        // The cursor's image is baked into the ring with the world and
+        // would otherwise trail behind (the previous bake now maps one
+        // shift away).
+        if (!cursorIsHidden()) {
+            Rect cur;
+            mouseGetRect(&cur);
+            Rect prev = cur;
+            rectOffset(&prev, -screenDx, -screenDy);
+            rectUnion(&cur, &prev, &cur);
+            Rect clipped;
+            if (rectIntersection(&cur, &gIsoWindowRect, &clipped) == 0) {
+                mark.x = clipped.left;
+                mark.y = clipped.top;
+                mark.w = clipped.right - clipped.left + 1;
+                mark.h = clipped.bottom - clipped.top + 1;
+                renderMarkDirtyAmbient(&mark);
+            }
+        }
+        return;
     }
 
     windowRefresh(gIsoWindow);

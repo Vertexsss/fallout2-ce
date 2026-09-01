@@ -257,6 +257,16 @@ void ecoCoresNext()
     ecoCoresSetEnabled(settings.ui.eco_cores);
 }
 
+const char* gpuPanText()
+{
+    return settings.screen.gpu_iso ? "ON" : "OFF";
+}
+
+void gpuPanNext()
+{
+    settings.screen.gpu_iso = !settings.screen.gpu_iso;
+}
+
 const char* autoPowerText()
 {
     return settings.ui.auto_power ? "ON" : "OFF";
@@ -285,6 +295,7 @@ constexpr Row kRows[] = {
     { "FPS CAP", fpsCapText, fpsCapNext },
     { "ECO CORES", ecoCoresText, ecoCoresNext },
     { "AUTO POWER", autoPowerText, autoPowerNext },
+    { "GPU PAN", gpuPanText, gpuPanNext },
     { "COLOR CYCLE SPEED", cycleText, cycleNext },
     { "FPS COUNTER", fpsCounterText, fpsCounterNext },
     { "TOUCH TOOLBAR", toolbarText, toolbarNext },

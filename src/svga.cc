@@ -2,6 +2,9 @@
 
 #include <limits.h>
 #include <stdio.h>
+
+#include <vector>
+#include <stdlib.h>
 #include <string.h>
 
 #include <SDL.h>
@@ -16,6 +19,7 @@
 #include "draw.h"
 #include "game.h"
 #include "interface.h"
+#include "map.h"
 #include "memory.h"
 #include "mouse.h"
 #include "movie.h"
@@ -24,6 +28,7 @@
 #include "text_font.h"
 #include "tile.h"
 #include "win32.h"
+#include "window_manager.h"
 #include "window_manager_private.h"
 
 namespace fallout {
@@ -549,11 +554,15 @@ static bool createRenderer(int width, int height)
     return true;
 }
 
+static void isoRingDestroy();
+
 static void destroyRenderer()
 {
     // The recorded dirty regions are only meaningful for the surface they
     // were recorded against - forget them before that surface goes away.
     gDirtyRectCount = 0;
+
+    isoRingDestroy();
 
     if (gSdlTextureSurface != nullptr) {
         SDL_FreeSurface(gSdlTextureSurface);
@@ -660,6 +669,202 @@ void renderFpsCounter()
     renderMarkDirtyAmbient(&rect);
 }
 
+// ---- GPU-composited iso view ----
+//
+// The iso window is the bottom-most game window; during a pan every pixel
+// of it changes, which forced a full-viewport convert + upload per frame.
+// Instead its content lives in a ring-addressed texture: screen (x, y)
+// maps to texture ((x + ox) % W, (y + oy) % H). A pan advances the origin
+// and only the exposed strips are uploaded; the GPU composes the view from
+// up to four wrapped pieces, then draws the windows above the iso window
+// (and the software cursor) from the classic full-screen texture, whose
+// pixels for exactly those rects are always current.
+static SDL_Texture* gIsoRingTexture = nullptr;
+static int gIsoRingW = 0;
+static int gIsoRingH = 0;
+static int gIsoRingOx = 0;
+static int gIsoRingOy = 0;
+static bool gIsoRingContentValid = false;
+static bool gIsoModeLastPresent = false;
+static bool gIsoShiftSincePresent = false;
+
+static int isoRingWrap(int value, int size)
+{
+    value %= size;
+    return value < 0 ? value + size : value;
+}
+
+static bool isoGpuModeActive()
+{
+    if (!settings.screen.gpu_iso) {
+        return false;
+    }
+    if (gIsoWindow == -1) {
+        return false;
+    }
+    Window* window = windowGetWindow(gIsoWindow);
+    if (window == nullptr || (window->flags & WINDOW_HIDDEN) != 0) {
+        return false;
+    }
+    // The ring matches the iso window only while it sits at the origin and
+    // spans the full width (it always does; be defensive).
+    return window->rect.left == 0 && window->rect.top == 0
+        && window->width == gSdlTextureSurface->w;
+}
+
+static bool isoRingEnsure(int width, int height)
+{
+    if (gIsoRingTexture != nullptr && (gIsoRingW != width || gIsoRingH != height)) {
+        SDL_DestroyTexture(gIsoRingTexture);
+        gIsoRingTexture = nullptr;
+    }
+    if (gIsoRingTexture == nullptr) {
+        gIsoRingTexture = SDL_CreateTexture(gSdlRenderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, width, height);
+        gIsoRingW = width;
+        gIsoRingH = height;
+        gIsoRingOx = 0;
+        gIsoRingOy = 0;
+        gIsoRingContentValid = false;
+    }
+    return gIsoRingTexture != nullptr;
+}
+
+static void isoRingDestroy()
+{
+    if (gIsoRingTexture != nullptr) {
+        SDL_DestroyTexture(gIsoRingTexture);
+        gIsoRingTexture = nullptr;
+    }
+    gIsoRingContentValid = false;
+    gIsoModeLastPresent = false;
+}
+
+// Palette lookup for converting the 8-bit iso window buffer directly.
+static Uint32 gIsoRingLut[256];
+
+static void isoRingRebuildLut()
+{
+    SDL_Palette* palette = gSdlSurface->format->palette;
+    for (int index = 0; index < 256; index++) {
+        const SDL_Color& c = palette->colors[index];
+        gIsoRingLut[index] = SDL_MapRGB(gSdlTextureSurface->format, c.r, c.g, c.b);
+    }
+}
+
+// Upload a screen-space rect into the ring at wrapped positions - up to 4
+// pieces. The pixels come from the ISO WINDOW's own buffer (pure world:
+// floating text yes, but no windows drawn above and no software cursor) -
+// sourcing the composited surface instead baked window and cursor pixels
+// into the world, and they smeared across the screen as the origin moved.
+static bool isoRingUpload(const SDL_Rect& r)
+{
+    unsigned char* windowBuffer = windowGetBuffer(gIsoWindow);
+    if (windowBuffer == nullptr) {
+        return false;
+    }
+
+    static std::vector<Uint32> scratch;
+    scratch.resize(static_cast<size_t>(r.w) * r.h);
+    for (int y = 0; y < r.h; y++) {
+        const unsigned char* src = windowBuffer + static_cast<size_t>(r.y + y) * gIsoRingW + r.x;
+        Uint32* dst = scratch.data() + static_cast<size_t>(y) * r.w;
+        for (int x = 0; x < r.w; x++) {
+            dst[x] = gIsoRingLut[src[x]];
+        }
+    }
+    const int scratchPitch = r.w * 4;
+
+    bool ok = true;
+    int spansX[2][3]; // dstTexX, srcScreenX, width
+    int spansY[2][3];
+    int countX = 0;
+    int countY = 0;
+
+    int tx = isoRingWrap(r.x + gIsoRingOx, gIsoRingW);
+    int firstW = gIsoRingW - tx < r.w ? gIsoRingW - tx : r.w;
+    spansX[countX][0] = tx; spansX[countX][1] = r.x; spansX[countX][2] = firstW; countX++;
+    if (firstW < r.w) {
+        spansX[countX][0] = 0; spansX[countX][1] = r.x + firstW; spansX[countX][2] = r.w - firstW; countX++;
+    }
+
+    int ty = isoRingWrap(r.y + gIsoRingOy, gIsoRingH);
+    int firstH = gIsoRingH - ty < r.h ? gIsoRingH - ty : r.h;
+    spansY[countY][0] = ty; spansY[countY][1] = r.y; spansY[countY][2] = firstH; countY++;
+    if (firstH < r.h) {
+        spansY[countY][0] = 0; spansY[countY][1] = r.y + firstH; spansY[countY][2] = r.h - firstH; countY++;
+    }
+
+    for (int iy = 0; iy < countY; iy++) {
+        for (int ix = 0; ix < countX; ix++) {
+            SDL_Rect texRect;
+            texRect.x = spansX[ix][0];
+            texRect.y = spansY[iy][0];
+            texRect.w = spansX[ix][2];
+            texRect.h = spansY[iy][2];
+            const unsigned char* pixels = reinterpret_cast<const unsigned char*>(scratch.data())
+                + static_cast<size_t>(spansY[iy][1] - r.y) * scratchPitch
+                + static_cast<size_t>(spansX[ix][1] - r.x) * 4;
+            if (SDL_UpdateTexture(gIsoRingTexture, &texRect, pixels, scratchPitch) != 0) {
+                ok = false;
+            }
+            gStatUploadBytes += static_cast<long long>(texRect.w) * texRect.h * 4;
+        }
+    }
+    return ok;
+}
+
+// Draw the ring onto the screen area (0,0,w,h) as up to 4 wrapped pieces.
+static void isoRingCompose(int width, int height)
+{
+    int firstW = gIsoRingW - gIsoRingOx < width ? gIsoRingW - gIsoRingOx : width;
+    int firstH = gIsoRingH - gIsoRingOy < height ? gIsoRingH - gIsoRingOy : height;
+
+    for (int part = 0; part < 4; part++) {
+        bool rightPart = (part & 1) != 0;
+        bool bottomPart = (part & 2) != 0;
+        SDL_Rect dst;
+        dst.x = rightPart ? firstW : 0;
+        dst.w = rightPart ? width - firstW : firstW;
+        dst.y = bottomPart ? firstH : 0;
+        dst.h = bottomPart ? height - firstH : firstH;
+        if (dst.w <= 0 || dst.h <= 0) {
+            continue;
+        }
+        SDL_Rect src;
+        src.x = rightPart ? 0 : gIsoRingOx;
+        src.y = bottomPart ? 0 : gIsoRingOy;
+        src.w = dst.w;
+        src.h = dst.h;
+        SDL_RenderCopy(gSdlRenderer, gIsoRingTexture, &src, &dst);
+    }
+}
+
+bool renderIsoPanShift(int screenDx, int screenDy)
+{
+    if (!isoGpuModeActive() || gSdlRenderer == nullptr) {
+        return false;
+    }
+    Window* window = windowGetWindow(gIsoWindow);
+    if (!isoRingEnsure(window->width, window->height)) {
+        return false;
+    }
+    if (!gIsoRingContentValid) {
+        // First pan since (re)creation - the classic full refresh that
+        // the caller will do fills the ring.
+        return false;
+    }
+    if (gIsoShiftSincePresent) {
+        // A second shift before the pending strips were uploaded would
+        // leave them at pre-shift coordinates - let the caller fall back
+        // to a full refresh for this frame.
+        return false;
+    }
+    gIsoShiftSincePresent = true;
+    gIsoRingOx = isoRingWrap(gIsoRingOx + screenDx, gIsoRingW);
+    gIsoRingOy = isoRingWrap(gIsoRingOy + screenDy, gIsoRingH);
+    return true;
+}
+
 void renderMarkDirty(const SDL_Rect* rect)
 {
     sharedFpsLimiter.notifyActivity();
@@ -668,8 +873,18 @@ void renderMarkDirty(const SDL_Rect* rect)
 
 // Same as renderMarkDirty, but does not register user activity - for ambient
 // animation (palette cycling) that should not keep the idle limiter awake.
+static bool gMarkSuppressed = false;
+
+void renderSetMarkSuppressed(bool suppressed)
+{
+    gMarkSuppressed = suppressed;
+}
+
 void renderMarkDirtyAmbient(const SDL_Rect* rect)
 {
+    if (gMarkSuppressed) {
+        return;
+    }
     if (gSdlTextureSurface == nullptr) {
         return;
     }
@@ -737,9 +952,27 @@ void renderPresent()
         return;
     }
 
+    // GPU iso mode: entering, leaving or (re)creating the ring needs one
+    // full refresh so the newly authoritative texture holds everything.
+    bool isoMode = isoGpuModeActive();
+    if (isoMode) {
+        Window* isoWin = windowGetWindow(gIsoWindow);
+        if (!isoRingEnsure(isoWin->width, isoWin->height)) {
+            isoMode = false;
+        }
+    }
+    if (isoMode != gIsoModeLastPresent || (isoMode && !gIsoRingContentValid)) {
+        renderMarkDirtyAmbient(nullptr);
+    }
+    gIsoModeLastPresent = isoMode;
+
     // Convert and upload every dirty rect separately - each exactly once per
     // presented frame, with the palette as it stands now.
     bool uploadFailed = false;
+    bool ringSawFullRect = false;
+    if (isoMode) {
+        isoRingRebuildLut();
+    }
     for (int i = 0; i < gDirtyRectCount; i++) {
         const SDL_Rect& r = gDirtyRects[i];
 
@@ -749,12 +982,56 @@ void renderPresent()
             SDL_BlitSurface(gSdlSurface, &src, gSdlTextureSurface, &dst);
         }
 
+        bool classicTextureNeeded = true;
+        if (isoMode && r.y + r.h <= gIsoRingH) {
+            // The composed frame samples the classic texture only at the
+            // windows above the iso window, the cursor and the debug
+            // overlay - a pure-world rect need not reach the GPU twice.
+            classicTextureNeeded = false;
+
+            Rect above[32];
+            int aboveCount = windowGetVisibleRectsAbove(gIsoWindow, above, 32);
+            SDL_Rect probe;
+            for (int a = 0; a < aboveCount && !classicTextureNeeded; a++) {
+                SDL_Rect wr = { above[a].left, above[a].top,
+                    above[a].right - above[a].left + 1, above[a].bottom - above[a].top + 1 };
+                classicTextureNeeded = SDL_IntersectRect(&r, &wr, &probe) == SDL_TRUE;
+            }
+            if (!classicTextureNeeded && !cursorIsHidden()) {
+                Rect cur;
+                mouseGetRect(&cur);
+                SDL_Rect cr = { cur.left, cur.top, cur.right - cur.left + 1, cur.bottom - cur.top + 1 };
+                classicTextureNeeded = SDL_IntersectRect(&r, &cr, &probe) == SDL_TRUE;
+            }
+            if (!classicTextureNeeded && settings.debug.show_fps) {
+                SDL_Rect fr = { 0, 0, 420, 16 };
+                classicTextureNeeded = SDL_IntersectRect(&r, &fr, &probe) == SDL_TRUE;
+            }
+        }
+
         const unsigned char* pixels = static_cast<const unsigned char*>(gSdlTextureSurface->pixels)
             + static_cast<size_t>(r.y) * gSdlTextureSurface->pitch
             + static_cast<size_t>(r.x) * gSdlTextureSurface->format->BytesPerPixel;
 
-        if (SDL_UpdateTexture(gSdlTexture, &r, pixels, gSdlTextureSurface->pitch) != 0) {
+        if (classicTextureNeeded && SDL_UpdateTexture(gSdlTexture, &r, pixels, gSdlTextureSurface->pitch) != 0) {
             uploadFailed = true;
+        }
+
+        if (isoMode) {
+            SDL_Rect isoArea;
+            isoArea.x = 0;
+            isoArea.y = 0;
+            isoArea.w = gIsoRingW;
+            isoArea.h = gIsoRingH;
+            SDL_Rect isoPart;
+            if (SDL_IntersectRect(&r, &isoArea, &isoPart) == SDL_TRUE) {
+                if (!isoRingUpload(isoPart)) {
+                    uploadFailed = true;
+                }
+                if (isoPart.w == gIsoRingW && isoPart.h == gIsoRingH) {
+                    ringSawFullRect = true;
+                }
+            }
         }
 
         gStatUploadBytes += static_cast<long long>(r.w) * r.h * gSdlTextureSurface->format->BytesPerPixel;
@@ -764,14 +1041,63 @@ void renderPresent()
             gStatMaxRectH = r.h;
         }
     }
+    if (isoMode && ringSawFullRect && !uploadFailed) {
+        gIsoRingContentValid = true;
+    }
 
     sharedFpsLimiter.notifyPresent();
     gStatPresents++;
     SDL_RenderClear(gSdlRenderer);
-    SDL_RenderCopy(gSdlRenderer, gSdlTexture, nullptr, nullptr);
+    if (isoMode && gIsoRingContentValid) {
+        isoRingCompose(gIsoRingW, gIsoRingH);
+
+        // Everything above the iso window comes from the classic texture -
+        // its pixels for exactly these rects are always freshly uploaded.
+        constexpr int kMaxAboveRects = 32;
+        Rect above[kMaxAboveRects];
+        int aboveCount = windowGetVisibleRectsAbove(gIsoWindow, above, kMaxAboveRects);
+        for (int i = 0; i < aboveCount; i++) {
+            SDL_Rect wr;
+            wr.x = above[i].left;
+            wr.y = above[i].top;
+            wr.w = above[i].right - above[i].left + 1;
+            wr.h = above[i].bottom - above[i].top + 1;
+            SDL_Rect full = { 0, 0, gSdlTextureSurface->w, gSdlTextureSurface->h };
+            SDL_Rect clipped;
+            if (SDL_IntersectRect(&wr, &full, &clipped) == SDL_TRUE) {
+                SDL_RenderCopy(gSdlRenderer, gSdlTexture, &clipped, &clipped);
+            }
+        }
+
+        // The software cursor is composited into the classic texture too.
+        if (!cursorIsHidden()) {
+            Rect cur;
+            mouseGetRect(&cur);
+            SDL_Rect cr;
+            cr.x = cur.left;
+            cr.y = cur.top;
+            cr.w = cur.right - cur.left + 1;
+            cr.h = cur.bottom - cur.top + 1;
+            SDL_Rect full = { 0, 0, gSdlTextureSurface->w, gSdlTextureSurface->h };
+            SDL_Rect clipped;
+            if (SDL_IntersectRect(&cr, &full, &clipped) == SDL_TRUE) {
+                SDL_RenderCopy(gSdlRenderer, gSdlTexture, &clipped, &clipped);
+            }
+        }
+
+        // Debug FPS overlay draws straight onto the surface at the corner.
+        if (settings.debug.show_fps) {
+            SDL_Rect fr = { 0, 0, gSdlTextureSurface->w < 420 ? gSdlTextureSurface->w : 420, 16 };
+            SDL_RenderCopy(gSdlRenderer, gSdlTexture, &fr, &fr);
+        }
+    } else {
+        SDL_RenderCopy(gSdlRenderer, gSdlTexture, nullptr, nullptr);
+    }
     // render movie SDL texture if present
     movieRenderDirectOverlay();
+
     SDL_RenderPresent(gSdlRenderer);
+    gIsoShiftSincePresent = false;
 
     // A transiently failed texture upload (Metal around app suspension)
     // would otherwise leave stale pixels - ghost cursor images - in the

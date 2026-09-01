@@ -47,6 +47,11 @@ struct ScreenSettings {
     // playing at the cost of pan/scroll smoothness.
     int fps_cap = 60;
 
+    // GPU-composited iso view: map pans shift a ring texture's origin and
+    // upload only the exposed strips instead of re-uploading the whole
+    // viewport every pan frame.
+    bool gpu_iso = true;
+
     // Captured by the UI SCALE toggle the first time it is used, so the
     // native resolution can be restored after rendering at a reduced one.
     int native_resolution_x = 0;

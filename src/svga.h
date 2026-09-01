@@ -66,6 +66,14 @@ void renderFpsCounter();
 void renderMarkDirty(const SDL_Rect* rect);
 void renderMarkDirtyAmbient(const SDL_Rect* rect);
 void renderPresent();
+// GPU iso view: the pan advanced the ring origin; the caller refreshes only
+// the exposed strips. Returns false when the classic full refresh must run
+// (mode off, ring not filled yet, second shift within one frame).
+bool renderIsoPanShift(int screenDx, int screenDy);
+// While suppressed, dirty marks are dropped: the GPU pan composites the
+// whole iso window into the surface (cheap, 8-bit) but uploads only the
+// exposed strips it marks explicitly afterwards.
+void renderSetMarkSuppressed(bool suppressed);
 bool screenIsExclusiveFullscreen();
 
 } // namespace fallout

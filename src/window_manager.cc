@@ -1177,6 +1177,28 @@ Buffer2D windowGetBuffer2D(int win)
 }
 
 // 0x4D78CC
+int windowGetVisibleRectsAbove(int windowId, Rect* rects, int maxCount)
+{
+    int count = 0;
+    bool found = false;
+    for (int index = 0; index < gWindowsLength; index++) {
+        Window* window = gWindows[index];
+        if (!found) {
+            if (window->id == windowId) {
+                found = true;
+            }
+            continue;
+        }
+        if ((window->flags & WINDOW_HIDDEN) != 0) {
+            continue;
+        }
+        if (count < maxCount) {
+            rects[count++] = window->rect;
+        }
+    }
+    return found ? count : -1;
+}
+
 int windowGetVisibleAtPoint(int x, int y)
 {
     for (int index = gWindowsLength - 1; index >= 0; index--) {

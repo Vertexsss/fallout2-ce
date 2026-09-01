@@ -167,6 +167,7 @@ void initSettingsRegistry(bool isMapper)
     SETTING_P(scale, clamp(1, 4));
     SETTING_P(idle_fps, clamp(1, 60));
     SETTING_P(fps_cap, clamp(30, 60));
+    SETTING(gpu_iso);
     SETTING_P(idle_grace_ms, clamp(50, 10000));
     SETTING(native_resolution_x);
     SETTING(native_resolution_y);

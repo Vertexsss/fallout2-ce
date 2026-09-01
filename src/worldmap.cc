@@ -3458,6 +3458,8 @@ static int wmWorldMapFunc(int a1)
         int mouseEvent = mouseGetEvent();
 
         if (wmGenData.isWalking && wmTravelTickDue(now)) {
+            // Travel is watched motion - keep the dot moving at full rate.
+            sharedFpsLimiter.notifyActivity();
             wmPartyWalkingStep();
 
             if (wmGenData.isInCar) {

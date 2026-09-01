@@ -11,6 +11,7 @@
 #include "art.h"
 #include "color.h"
 #include "combat.h"
+#include "fps_limiter.h"
 #include "combat_ai.h"
 #include "critter.h"
 #include "debug.h"
@@ -2856,6 +2857,14 @@ void _object_animate()
 {
     if (gAnimationCurrentSad == 0) {
         return;
+    }
+
+    // Combat animations (enemy turns, shots, deaths) and scripted scenes
+    // (UI disabled, critters moving) are watched motion - the idle frame
+    // rate must not throttle them. Ordinary ambient animation outside
+    // these states stays ambient so the idle ladder still engages.
+    if (isInCombat() || gameUiIsDisabled()) {
+        sharedFpsLimiter.notifyActivity();
     }
 
     _anim_in_bk = true;

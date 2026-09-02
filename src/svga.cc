@@ -27,7 +27,6 @@
 #include "settings.h"
 #include "text_font.h"
 #include "tile.h"
-#include "tile_hires_stencil.h"
 #include "win32.h"
 #include "window_manager.h"
 #include "window_manager_private.h"
@@ -720,14 +719,6 @@ static bool isoGpuModeActive()
     // composing (and re-uploading) the hidden ring under it would double
     // the upload for nothing.
     if (_moviePlaying()) {
-        return false;
-    }
-    // The hi-res stencil is a screen-space, square-aligned overlay drawn
-    // into the strips a pan re-renders; strip-only uploads leave its black
-    // squares inconsistent with the shifted interior (black fragments at
-    // edges and mid-map). Fall back to the classic full refresh, which
-    // repaints and uploads the whole window every pan.
-    if (tile_hires_stencil_is_enabled()) {
         return false;
     }
     if (gIsoWindow == -1) {

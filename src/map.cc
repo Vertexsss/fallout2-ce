@@ -636,7 +636,19 @@ static int mapFloorDiv(int value, int step)
     return q;
 }
 
-static bool mapTryStepCenter(int stepsX, int stepsY)
+// Outcome of a whole-tile center step during smooth panning.
+enum MapStepOutcome {
+    MAP_STEP_MOVED, // center stepped; nothing rendered - the caller blits
+    MAP_STEP_BLOCKED, // nothing changed
+    // EDG boundary edge: the center DID step, the persistent edge-alignment
+    // mods changed, and tileSetCenter performed the full window refresh
+    // itself (its classic "-1 after boundary mods" contract). The buffer is
+    // already correct for the new view - any blit over it displaces the
+    // whole frame.
+    MAP_STEP_REFRESHED,
+};
+
+static MapStepOutcome mapTryStepCenter(int stepsX, int stepsY)
 {
     int centerScreenX;
     int centerScreenY;
@@ -646,10 +658,14 @@ static bool mapTryStepCenter(int stepsX, int stepsY)
 
     int newCenterTile = tileFromScreenXY(centerScreenX, centerScreenY);
     if (newCenterTile == -1) {
-        return false;
+        return MAP_STEP_BLOCKED;
     }
 
-    return tileSetCenter(newCenterTile, 0) != -1;
+    int oldCenterTile = gCenterTile;
+    if (tileSetCenter(newCenterTile, 0) != -1) {
+        return MAP_STEP_MOVED;
+    }
+    return gCenterTile != oldCenterTile ? MAP_STEP_REFRESHED : MAP_STEP_BLOCKED;
 }
 
 // Shift the rendered iso view by raw pixels and re-render only the exposed
@@ -789,19 +805,45 @@ int mapScrollPixels(int dxPixels, int dyPixels)
     // keep that invariant for sub-tile (bias-only) shifts as well.
     gameMouseObjectsHide();
 
+    bool boundaryRefreshed = false;
     if (stepsX != 0 || stepsY != 0) {
-        if (mapTryStepCenter(stepsX, stepsY)) {
+        MapStepOutcome outcome = mapTryStepCenter(stepsX, stepsY);
+        if (outcome == MAP_STEP_MOVED) {
             movedX = true;
             movedY = true;
+        } else if (outcome == MAP_STEP_REFRESHED) {
+            boundaryRefreshed = true;
         } else {
-            // Slide along the boundary: try each axis separately.
-            if (stepsX != 0 && mapTryStepCenter(stepsX, 0)) {
-                movedX = true;
+            // Slide along the boundary: try each axis separately - but
+            // stop after any boundary refresh (that try already moved the
+            // center; stepping again would double the move).
+            if (stepsX != 0) {
+                outcome = mapTryStepCenter(stepsX, 0);
+                if (outcome == MAP_STEP_MOVED) {
+                    movedX = true;
+                } else if (outcome == MAP_STEP_REFRESHED) {
+                    boundaryRefreshed = true;
+                }
             }
-            if (stepsY != 0 && mapTryStepCenter(0, stepsY)) {
-                movedY = true;
+            if (stepsY != 0 && !boundaryRefreshed) {
+                outcome = mapTryStepCenter(0, stepsY);
+                if (outcome == MAP_STEP_MOVED) {
+                    movedY = true;
+                } else if (outcome == MAP_STEP_REFRESHED) {
+                    boundaryRefreshed = true;
+                }
             }
         }
+    }
+
+    if (boundaryRefreshed) {
+        // The window was fully re-rendered with the CURRENT bias inside
+        // tileSetCenter. Blitting over that fresh frame would shift it by
+        // a stale delta (the offset bands / black rectangles at map
+        // borders), and reporting -1 made pan and inertia stall against
+        // the border. Drop this tick's sub-tile residual instead and
+        // report movement.
+        return 0;
     }
 
     int finalBiasX = movedX ? residualX : shownX;

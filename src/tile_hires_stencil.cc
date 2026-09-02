@@ -85,7 +85,7 @@ static void clean_cache()
     memset(screen_xy_limits, 0, sizeof(screen_xy_limits));
     memset(visible_squares, 0, sizeof(visible_squares));
 }
-static void clean_cache_for_elevation(int elevation)
+static inline void clean_cache_for_elevation(int elevation)
 {
     memset(visited_tiles[elevation], 0, sizeof(visited_tiles[elevation]));
     memset(&screen_xy_limits[elevation], 0, sizeof(screen_xy_limits[elevation]));
@@ -321,7 +321,6 @@ void tile_hires_stencil_on_center_tile_or_elevation_change()
         return;
     }
 
-    clean_cache_for_elevation(gElevation);
 
     struct TileToVisit {
         int tile;

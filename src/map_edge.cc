@@ -527,8 +527,15 @@ bool mapEdgeComputeVisibleArea(int elevation, Rect* outRect)
     int px, py;
     tileToPixelOffset(gCenterTile, px, py);
 
-    px += currentTileXAlignment;
-    py -= currentTileYAlignment;
+    // Both the boundary alignment mods and the smooth-pan pixel bias shift
+    // the rendered view (they enter _tile_offx/_tile_offy as
+    // "+alignment - bias"); the clip rect must follow both, in pixel-offset
+    // space with the opposite sign on the inverted X axis.
+    int viewBiasX, viewBiasY;
+    tileGetViewPixelBias(&viewBiasX, &viewBiasY);
+
+    px += currentTileXAlignment - viewBiasX;
+    py -= currentTileYAlignment - viewBiasY;
 
     EdgeZone* zone = findZoneByPixel(px, py, elevation);
     if (zone == nullptr) return false;

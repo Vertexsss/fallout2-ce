@@ -37,6 +37,7 @@
 #include "skill.h"
 #include "skilldex.h"
 #include "svga.h"
+#include "touch.h"
 #include "text_font.h"
 #include "tile.h"
 #include "window_manager.h"
@@ -2700,13 +2701,14 @@ int gameMouseHandleScrolling(int x, int y, int cursor)
 
     int flags = 0;
 
-    // Edge scrolling on touch engages only while the cursor is actively
-    // being pushed (finger deltas within the last moments): a parked
-    // trackpad-style cursor at a screen edge must not drag the camera
-    // forever. A physical mouse keeps the classic hold-at-edge behavior.
-    // The clipped-area cursor logic below still runs with flags == 0.
+    // Edge scrolling on touch engages only while a finger is actually on
+    // the glass. The old recency window kept scrolling for up to 700ms
+    // after the finger lifted - the camera drifted on "inertia" the user
+    // never asked for. A physical mouse keeps the classic hold-at-edge
+    // behavior. The clipped-area cursor logic below still runs with
+    // flags == 0.
     if (settings.ui.edge_scroll
-        && (mouseDeviceHasPhysicalMouse() || mouseCursorMovedRecently(700))) {
+        && (mouseDeviceHasPhysicalMouse() || touch_active_finger_count() > 0)) {
         if (x <= _scr_size.left) {
             flags |= SCROLLABLE_W;
         }

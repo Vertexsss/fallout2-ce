@@ -16,6 +16,7 @@ void tile_hires_stencil_draw(Rect* rect, unsigned char* buffer, int windowWidth,
 // Live toggle from the in-game settings screen: rebuilds or clears the
 // stencil caches and refreshes the view.
 void tile_hires_stencil_set_enabled(bool enabled);
+bool tile_hires_stencil_is_enabled();
 
 // Even when scrollblockers allow it, disallow scrolling on big resolutions
 // if there is nothing but void to show there.

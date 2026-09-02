@@ -163,6 +163,17 @@ void touch_handle_end(SDL_TouchFingerEvent* event)
     }
 }
 
+int touch_active_finger_count()
+{
+    int count = 0;
+    for (int index = 0; index < MAX_TOUCHES; index++) {
+        if (touches[index].used && touches[index].phase != TOUCH_PHASE_ENDED) {
+            count++;
+        }
+    }
+    return count;
+}
+
 void touch_process_gesture()
 {
     Uint32 sequenceStartTimestamp = -1;

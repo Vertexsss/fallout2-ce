@@ -667,6 +667,11 @@ void tile_hires_stencil_on_map_load()
     debugPrint("tile_hires_stencil_on_map_load\n");
 }
 
+bool tile_hires_stencil_is_enabled()
+{
+    return gIsTileHiresStencilEnabled;
+}
+
 void tile_hires_stencil_set_enabled(bool enabled)
 {
     bool effective = enabled

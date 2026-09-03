@@ -315,6 +315,11 @@ void tile_hires_stencil_on_center_tile_or_elevation_change()
     if (!gIsTileHiresStencilEnabled) {
         return;
     }
+    // FREE CAMERA clamps the camera to the real map bounds; the mask would
+    // only blacken legitimately visible map content.
+    if (settings.ui.free_scroll) {
+        return;
+    }
     // With EDG loaded, the EdgeClipping path handles blackening via ClearRect/CheckRect.
     // The stencil used as a backup when no EDG is present.
     if (mapEdgeIsEnabled() || !gTileBorderInitialized || visited_tiles[gElevation][gCenterTile]) {
@@ -384,6 +389,10 @@ void tile_hires_stencil_on_center_tile_or_elevation_change()
 void tile_hires_stencil_draw(Rect* rect, unsigned char* buffer, int windowWidth, int windowHeight)
 {
     if (!gIsTileHiresStencilEnabled) {
+        return;
+    }
+    // FREE CAMERA: see tile_hires_stencil_on_center_tile_or_elevation_change.
+    if (settings.ui.free_scroll) {
         return;
     }
 

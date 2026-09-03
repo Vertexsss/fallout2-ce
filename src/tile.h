@@ -65,6 +65,9 @@ void tileScrollLimitingEnable();
 void tileScrollLimitingDisable();
 bool tileScrollLimitingIsEnabled();
 int squareTileToScreenXY(int squareTile, int* coordX, int* coordY, int elevation);
+// FREE CAMERA: clamp a scroll delta so the view stops flush with the map's
+// real content bounds. Returns true when the clamp is active.
+bool tileFreeScrollClampDelta(int* dxPixels, int* dyPixels);
 int squareTileToRoofScreenXY(int squareTile, int* screenX, int* screenY, int elevation);
 int squareTileFromScreenXY(int screenX, int screenY, int elevation);
 void squareTileScreenToCoord(int screenX, int screenY, int elevation, int* coordX, int* coordY);

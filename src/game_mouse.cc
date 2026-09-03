@@ -2707,8 +2707,10 @@ int gameMouseHandleScrolling(int x, int y, int cursor)
     // never asked for. A physical mouse keeps the classic hold-at-edge
     // behavior. The clipped-area cursor logic below still runs with
     // flags == 0.
+    // Exactly ONE finger: during a two-finger camera pan a cursor parked
+    // at a screen edge must not fight the pan with opposing edge scrolls.
     if (settings.ui.edge_scroll
-        && (mouseDeviceHasPhysicalMouse() || touch_active_finger_count() > 0)) {
+        && (mouseDeviceHasPhysicalMouse() || touch_active_finger_count() == 1)) {
         if (x <= _scr_size.left) {
             flags |= SCROLLABLE_W;
         }

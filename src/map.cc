@@ -783,6 +783,15 @@ static void isoWindowShiftPixels(int screenDx, int screenDy)
 
 int mapScrollPixels(int dxPixels, int dyPixels)
 {
+    // FREE CAMERA: pixel-precise clamp against the map's real content
+    // bounds - the camera glides flush to the map edge instead of hitting
+    // scroll blockers tuned for 640x480, and no black mask is needed.
+    if (tileFreeScrollClampDelta(&dxPixels, &dyPixels)) {
+        if (dxPixels == 0 && dyPixels == 0) {
+            return -1;
+        }
+    }
+
     // The applied viewport bias is the single source of truth - forced
     // re-centering (map load, teleport) resets it, and reading it back here
     // keeps this function in sync with no state of its own.
@@ -888,6 +897,17 @@ int mapScroll(int dx, int dy, bool fastPaced)
 
     if (screenDx == 0 && screenDy == 0) {
         return -1;
+    }
+
+    {
+        int clampedDx = screenDx;
+        int clampedDy = screenDy;
+        if (tileFreeScrollClampDelta(&clampedDx, &clampedDy)
+            && (clampedDx != screenDx || clampedDy != screenDy)) {
+            // Whole-tile steps cannot go partial; the pixel pan covers the
+            // remaining sub-tile distance to the flush edge.
+            return -1;
+        }
     }
 
     gameMouseObjectsHide();

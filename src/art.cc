@@ -8,6 +8,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
+
 #include "animation.h"
 #include "art_defs.h"
 #include "content_config.h"
@@ -165,6 +169,14 @@ int artInit()
     char string[200];
 
     int cacheSize = settings.system.art_cache_size;
+#if defined(__APPLE__) && TARGET_OS_IOS
+    // The vanilla 32MB LRU thrashes on busy maps and keeps re-inflating FRM
+    // art from the DAT (zlib on every miss). The iPad has RAM to spare -
+    // keep a whole session's art resident.
+    if (cacheSize < 256) {
+        cacheSize = 256;
+    }
+#endif
     if (!cacheInit(&gArtCache, artCacheGetFileSizeImpl, artCacheReadDataImpl, artCacheFreeImpl, cacheSize << 20)) {
         debugPrint("cache_init failed in art_init\n");
         return -1;

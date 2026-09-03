@@ -1,5 +1,6 @@
 #include "tile.h"
 
+
 #include <assert.h>
 #include <math.h>
 #include <string.h>
@@ -574,6 +575,202 @@ void tileWindowRefresh()
     }
 }
 
+// FREE CAMERA content bounds: the smallest screen-space rectangle holding
+// every non-blank floor and roof square of the current elevation. Offsets
+// are cached relative to square 0's screen position (the whole square grid
+// moves rigidly with the camera), so the cache survives camera moves and is
+// rebuilt only when the map or elevation changes.
+static int gContentBoundsMap = -2;
+static int gContentBoundsElev = -1;
+static bool gContentBoundsEmpty = true;
+static int gContentRelLeft;
+static int gContentRelTop;
+static int gContentRelRight;
+static int gContentRelBottom;
+// Content extent along the square grid's diagonal axes p = x + 4y and
+// q = x - 4y (map edges run at slope +-12/48 in screen space, so in (p, q)
+// the painted area is nearly a rectangle; combined with the axis-aligned
+// box this clamps to a tight octagon).
+static int gContentRelPMin;
+static int gContentRelPMax;
+static int gContentRelQMin;
+static int gContentRelQMax;
+
+static void tileContentBoundsEnsure()
+{
+    if (gContentBoundsMap == mapGetCurrentMap() && gContentBoundsElev == gElevation) {
+        return;
+    }
+    gContentBoundsMap = mapGetCurrentMap();
+    gContentBoundsElev = gElevation;
+    gContentBoundsEmpty = true;
+
+    int originX;
+    int originY;
+    squareTileToScreenXY(0, &originX, &originY, gElevation);
+
+    int minX = 0;
+    int minY = 0;
+    int maxX = 0;
+    int maxY = 0;
+    int gridSize = gSquareGridWidth * gSquareGridHeight;
+    for (int square = 0; square < gridSize; square++) {
+        int value = gTileSquares[gElevation]->field_0[square];
+        bool floorBlank = ((value >> 12) & 0x01) != 0 || (value & 0xFFF) <= 1;
+        int roofWord = (value >> 16) & 0xFFFF;
+        bool roofBlank = ((roofWord >> 12) & 0x01) != 0 || (roofWord & 0xFFF) <= 1;
+        if (floorBlank && roofBlank) {
+            continue;
+        }
+        int screenX;
+        int screenY;
+        for (int part = 0; part < 2; part++) {
+            if (part == 0 ? floorBlank : roofBlank) {
+                continue;
+            }
+            if (part == 0) {
+                squareTileToScreenXY(square, &screenX, &screenY, gElevation);
+            } else {
+                squareTileToRoofScreenXY(square, &screenX, &screenY, gElevation);
+            }
+            int pMin = screenX + 4 * screenY;
+            int pMax = pMin + 32 + 4 * 24;
+            int qMin = screenX - 4 * (screenY + 24);
+            int qMax = screenX + 32 - 4 * screenY;
+            if (gContentBoundsEmpty) {
+                minX = screenX;
+                minY = screenY;
+                maxX = screenX + 32;
+                maxY = screenY + 24;
+                gContentRelPMin = pMin;
+                gContentRelPMax = pMax;
+                gContentRelQMin = qMin;
+                gContentRelQMax = qMax;
+                gContentBoundsEmpty = false;
+            } else {
+                if (screenX < minX) minX = screenX;
+                if (screenY < minY) minY = screenY;
+                if (screenX + 32 > maxX) maxX = screenX + 32;
+                if (screenY + 24 > maxY) maxY = screenY + 24;
+                if (pMin < gContentRelPMin) gContentRelPMin = pMin;
+                if (pMax > gContentRelPMax) gContentRelPMax = pMax;
+                if (qMin < gContentRelQMin) gContentRelQMin = qMin;
+                if (qMax > gContentRelQMax) gContentRelQMax = qMax;
+            }
+        }
+    }
+
+    gContentRelLeft = minX - originX;
+    gContentRelTop = minY - originY;
+    gContentRelRight = maxX - originX;
+    gContentRelBottom = maxY - originY;
+    int originP = originX + 4 * originY;
+    int originQ = originX - 4 * originY;
+    gContentRelPMin -= originP;
+    gContentRelPMax -= originP;
+    gContentRelQMin -= originQ;
+    gContentRelQMax -= originQ;
+}
+
+// Clamp a requested scroll delta on one axis. While the view is inside the
+// content, movement is limited so the content edge stops flush with the
+// window edge; from an invalid position only movement back toward validity
+// is allowed; when the content is smaller than the window the camera may
+// only move toward the centered position.
+static void tileFreeScrollClampAxis(int* delta, int lo, int hi)
+{
+    if (lo > hi) {
+        int mid = (lo + hi) / 2;
+        lo = mid < 0 ? mid : 0;
+        hi = mid > 0 ? mid : 0;
+    } else {
+        if (lo > 0) lo = 0;
+        if (hi < 0) hi = 0;
+    }
+    if (*delta < lo) *delta = lo;
+    if (*delta > hi) *delta = hi;
+}
+
+bool tileFreeScrollClampDelta(int* dxPixels, int* dyPixels)
+{
+    if (!settings.ui.free_scroll) {
+        return false;
+    }
+    // EDG maps carry their own authored bounds and sub-tile alignment.
+    if (mapEdgeIsEnabled() && mapEdgeZoneIsSelected()) {
+        return false;
+    }
+    tileContentBoundsEnsure();
+    if (gContentBoundsEmpty) {
+        return false;
+    }
+
+    int originX;
+    int originY;
+    squareTileToScreenXY(0, &originX, &originY, gElevation);
+
+    int left = originX + gContentRelLeft;
+    int top = originY + gContentRelTop;
+    int right = originX + gContentRelRight;
+    int bottom = originY + gContentRelBottom;
+
+    // Decorative floors extend past the hex grid where the camera center
+    // can stand - intersect the content bounds with the reachable view
+    // envelope (the hex diamond's corner tiles), so the clamp's flush stop
+    // is a position the engine can actually reach.
+    static const int kHexCorners[4] = { 0, 199, HEX_GRID_SIZE - HEX_GRID_WIDTH, HEX_GRID_SIZE - 1 };
+    int minCx = 0;
+    int minCy = 0;
+    int maxCx = 0;
+    int maxCy = 0;
+    for (int corner = 0; corner < 4; corner++) {
+        int cx;
+        int cy;
+        tileToScreenXY(kHexCorners[corner], &cx, &cy);
+        if (corner == 0 || cx < minCx) minCx = cx;
+        if (corner == 0 || cx > maxCx) maxCx = cx;
+        if (corner == 0 || cy < minCy) minCy = cy;
+        if (corner == 0 || cy > maxCy) maxCy = cy;
+    }
+    int reachLeft = minCx + 16 - gTileWindowWidth / 2;
+    int reachRight = maxCx + 16 + gTileWindowWidth / 2;
+    int reachTop = minCy + 8 - gTileWindowHeight / 2;
+    int reachBottom = maxCy + 8 + gTileWindowHeight / 2;
+    if (left < reachLeft) left = reachLeft;
+    if (top < reachTop) top = reachTop;
+    if (right > reachRight) right = reachRight;
+    if (bottom > reachBottom) bottom = reachBottom;
+
+    // Allowed delta so the content keeps covering the window: after a
+    // scroll by d every screen coordinate shifts by -d, so the left edge
+    // needs d >= left and the right edge needs d <= right - width.
+    tileFreeScrollClampAxis(dxPixels, left, right - gTileWindowWidth);
+    tileFreeScrollClampAxis(dyPixels, top, bottom - gTileWindowHeight);
+
+    // Diagonal clamp: map edges run at slope +-12/48, so the view corners
+    // must also stay inside the content's (p, q) = (x + 4y, x - 4y) range.
+    // The view rect spans p in [0, w + 4h] and q in [-4h, w]. Reconstruction
+    // rounding can overshoot by a couple of pixels per event, but bounds are
+    // absolute, so the next event pulls the view back - no creep.
+    int originP = originX + 4 * originY;
+    int originQ = originX - 4 * originY;
+    int dp = *dxPixels + 4 * *dyPixels;
+    int dq = *dxPixels - 4 * *dyPixels;
+    int dpOld = dp;
+    int dqOld = dq;
+    tileFreeScrollClampAxis(&dp, originP + gContentRelPMin,
+        originP + gContentRelPMax - (gTileWindowWidth + 4 * gTileWindowHeight));
+    tileFreeScrollClampAxis(&dq, originQ + gContentRelQMin + 4 * gTileWindowHeight,
+        originQ + gContentRelQMax - gTileWindowWidth);
+    if (dp != dpOld || dq != dqOld) {
+        *dxPixels = (dp + dq) / 2;
+        *dyPixels = (dp - dq) / 8;
+        tileFreeScrollClampAxis(dxPixels, left, right - gTileWindowWidth);
+        tileFreeScrollClampAxis(dyPixels, top, bottom - gTileWindowHeight);
+    }
+    return true;
+}
+
 // 0x4B12F8 tile_set_center
 int tileSetCenter(int tile, int flags)
 {
@@ -625,8 +822,11 @@ int tileSetCenter(int tile, int flags)
                 boundaryModsSet = true;
                 flags |= TILE_SET_CENTER_REFRESH_WINDOW;
             }
-        } else if ((!edgeActive || !mapEdgeZoneIsSelected()) && gTileScrollBlockingEnabled) {
-            // Object scroll-blocker only applies when EDG isn't enforcing the boundary.
+        } else if ((!edgeActive || !mapEdgeZoneIsSelected()) && gTileScrollBlockingEnabled
+            && !settings.ui.free_scroll) {
+            // Object scroll-blocker only applies when EDG isn't enforcing the
+            // boundary. FREE CAMERA replaces blockers (tuned for 640x480
+            // views) with the pixel-precise content-bounds clamp.
             if (_obj_scroll_blocking_at(tile, gElevation) == 0) {
                 return -1;
             }
@@ -649,7 +849,8 @@ int tileSetCenter(int tile, int flags)
 
     // Legacy global borders are for maps without EDG data. EDG maps use their
     // own boundary/clamp logic above, which can validly land on this border.
-    if ((!edgeActive || !mapEdgeZoneIsSelected()) && gTileBorderInitialized && gTileScrollBlockingEnabled) {
+    if ((!edgeActive || !mapEdgeZoneIsSelected()) && gTileBorderInitialized && gTileScrollBlockingEnabled
+        && !settings.ui.free_scroll) {
         if (tile_x <= gTileBorderMinX || tile_x >= gTileBorderMaxX || tile_y <= gTileBorderMinY || tile_y >= gTileBorderMaxY) {
             return -1;
         }

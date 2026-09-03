@@ -856,7 +856,7 @@ void _mouse_info()
                     static double sZoomAnchorCarryX = 0.0;
                     static double sZoomAnchorCarryY = 0.0;
                     if (gesture.state == kBegan) {
-                        sPinchSmoothedSpread = touch_active_finger_spread();
+                        sPinchSmoothedSpread = gesture.spread;
                         sPinchBaseSpread = sPinchSmoothedSpread;
                         sPinchBaseZoom = renderIsoGetZoom();
                         sPinchEngaged = false;
@@ -876,7 +876,11 @@ void _mouse_info()
                     // so the scale continues without a jump. Fingers
                     // together = zoom out, anchored at the centroid.
                     if (gesture.numberOfTouches == 2 && gesture.state != kEnded) {
-                        int spreadRaw = touch_active_finger_spread();
+                        // The event carries the spread of ITS OWN two
+                        // fingers at ITS OWN moment - never re-sample the
+                        // live touch array here (a palm touch or an event
+                        // batch would jump the measurement).
+                        int spreadRaw = gesture.spread;
                         if (spreadRaw > 0) {
                             if (sPinchSmoothedSpread <= 0.0) {
                                 sPinchSmoothedSpread = spreadRaw;

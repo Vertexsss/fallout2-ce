@@ -103,6 +103,17 @@ static TouchLocation touch_get_start_location_centroid(int* indexes, int length)
     return centroid;
 }
 
+// Distance between the two given fingers (0 unless exactly two).
+static int touch_location_spread(int* indexes, int length)
+{
+    if (length != 2) {
+        return 0;
+    }
+    int dx = touches[indexes[0]].currentLocation.x - touches[indexes[1]].currentLocation.x;
+    int dy = touches[indexes[0]].currentLocation.y - touches[indexes[1]].currentLocation.y;
+    return static_cast<int>(sqrt(static_cast<double>(dx) * dx + static_cast<double>(dy) * dy));
+}
+
 static TouchLocation touch_get_current_location_centroid(int* indexes, int length)
 {
     TouchLocation centroid;
@@ -273,6 +284,7 @@ void touch_process_gesture()
                 currentGesture.state = kChanged;
                 currentGesture.x = centroid.x;
                 currentGesture.y = centroid.y;
+                currentGesture.spread = touch_location_spread(active, activeCount);
                 gestureEventsQueue.push(currentGesture);
             } else if (currentGesture.numberOfTouches == 1 && activeCount == 2 && endedCount == 0) {
                 // A second finger landed while a one-finger gesture is held.
@@ -406,6 +418,7 @@ void touch_process_gesture()
                 currentGesture.numberOfTouches = activeCount;
                 currentGesture.x = currentCentroid.x;
                 currentGesture.y = currentCentroid.y;
+                currentGesture.spread = touch_location_spread(active, activeCount);
                 gestureEventsQueue.push(currentGesture);
             } else if (SDL_GetTicks() - touches[active[0]].startTimestamp >= LONG_PRESS_MINIMUM_DURATION) {
                 currentGesture.type = kLongPress;
@@ -413,6 +426,7 @@ void touch_process_gesture()
                 currentGesture.numberOfTouches = activeCount;
                 currentGesture.x = currentCentroid.x;
                 currentGesture.y = currentCentroid.y;
+                currentGesture.spread = touch_location_spread(active, activeCount);
                 gestureEventsQueue.push(currentGesture);
             }
 

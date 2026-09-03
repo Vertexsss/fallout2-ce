@@ -25,6 +25,12 @@ struct Gesture {
     int numberOfTouches;
     int x;
     int y;
+    // Distance between the gesture's own two fingers at the moment this
+    // event was recognized (0 unless exactly two fingers). Reading the
+    // live touch array at dequeue time measured DIFFERENT fingers at a
+    // DIFFERENT moment - a stray palm touch or a queued-up event batch
+    // made the spread jump wildly.
+    int spread;
 };
 
 void touch_handle_start(SDL_TouchFingerEvent* event);

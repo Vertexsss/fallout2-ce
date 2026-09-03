@@ -37,6 +37,7 @@
 #include "kb.h"
 #include "loadsave.h"
 #include "map.h"
+#include "map_edge.h"
 #include "memory.h"
 #include "mouse.h"
 #include "movie.h"
@@ -762,13 +763,31 @@ int gameHandleKey(int eventCode, bool isInCombatMode)
         }
         break;
     case KEY_BRACKET_LEFT:
-        // Keyboard access to the pinch zoom-out (desktop testing, hardware
-        // keyboards): [ widens the view in 0.1 steps toward 1.5.
-        renderIsoSetZoom(renderIsoGetZoom() + 0.1);
-        break;
     case KEY_BRACKET_RIGHT:
-        // ] narrows it back toward 1.0.
-        renderIsoSetZoom(renderIsoGetZoom() - 0.1);
+        // Keyboard access to the pinch zoom-out (desktop testing, hardware
+        // keyboards): [ widens the view in 0.1 steps toward 1.5, ] narrows
+        // it back toward 1.0. The monitor line doubles as visible feedback
+        // that the key arrived even where the view cannot change (EDG
+        // maps, classic renderer).
+        {
+            double before = renderIsoGetZoom();
+            renderIsoSetZoom(before + (eventCode == KEY_BRACKET_LEFT ? 0.1 : -0.1));
+            double after = renderIsoGetZoom();
+            char zoomText[48];
+            if (after == before && (after <= 1.0001 || after >= 1.4999)) {
+                // The setter refused to move: either a clamp limit, or this
+                // is an EDG map where the authored edge geometry locks the
+                // view at 1x (zooming out would expose the off-map border).
+                if (mapEdgeIsEnabled()) {
+                    snprintf(zoomText, sizeof(zoomText), "Zoom locked on this map");
+                } else {
+                    snprintf(zoomText, sizeof(zoomText), "Zoom x%.1f (limit)", after);
+                }
+            } else {
+                snprintf(zoomText, sizeof(zoomText), "Zoom x%.1f", after);
+            }
+            displayMonitorAddMessage(zoomText);
+        }
         break;
     case KEY_HOME:
         if (gDude->elevation != gElevation) {

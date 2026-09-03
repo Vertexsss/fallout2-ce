@@ -27,6 +27,7 @@
 #include "interface.h"
 #include "item.h"
 #include "kb.h"
+#include "map.h"
 #include "map_edge.h"
 #include "mouse.h"
 #include "object.h"
@@ -2796,7 +2797,38 @@ int gameMouseHandleScrolling(int x, int y, int cursor)
         return -1;
     }
 
-    int rc = mapScroll(dx, dy);
+    // Smooth pixel-precise edge scroll. The classic path stepped a whole
+    // tile (32x24) at most once per 33ms throttle, so at 60fps the camera
+    // jumped 32px every other frame - a visible "waves" stutter next to
+    // the pixel-smooth touch pan. Drive mapScrollPixels by elapsed time
+    // instead, at the same average speed (~one tile per 33ms), carrying
+    // the sub-pixel remainder so slow frames still add up.
+    constexpr double kEdgeScrollTilesPerSec = 1000.0 / 33.0; // classic cadence
+    static unsigned int sEdgeLastTicks = 0;
+    static double sEdgeCarryX = 0.0;
+    static double sEdgeCarryY = 0.0;
+    unsigned int nowTicks = getTicks();
+    unsigned int dtTicks = nowTicks - sEdgeLastTicks;
+    sEdgeLastTicks = nowTicks;
+    if (dtTicks == 0 || dtTicks > 100) {
+        // First edge frame, or resumed after a pause: take one nominal
+        // step rather than a huge or zero jump.
+        dtTicks = 16;
+        sEdgeCarryX = 0.0;
+        sEdgeCarryY = 0.0;
+    }
+    double frac = kEdgeScrollTilesPerSec * dtTicks / 1000.0;
+    sEdgeCarryX += dx * frac * 32.0;
+    sEdgeCarryY += dy * frac * 24.0;
+    int pixelDx = static_cast<int>(sEdgeCarryX);
+    int pixelDy = static_cast<int>(sEdgeCarryY);
+    sEdgeCarryX -= pixelDx;
+    sEdgeCarryY -= pixelDy;
+
+    int rc = 0;
+    if (pixelDx != 0 || pixelDy != 0) {
+        rc = mapScrollPixels(pixelDx, pixelDy);
+    }
     switch (rc) {
     case -1:
         // Scrolling is blocked for whatever reason, upgrade cursor to

@@ -761,6 +761,15 @@ int gameHandleKey(int eventCode, bool isInCombatMode)
             }
         }
         break;
+    case KEY_BRACKET_LEFT:
+        // Keyboard access to the pinch zoom-out (desktop testing, hardware
+        // keyboards): [ widens the view in 0.1 steps toward 1.5.
+        renderIsoSetZoom(renderIsoGetZoom() + 0.1);
+        break;
+    case KEY_BRACKET_RIGHT:
+        // ] narrows it back toward 1.0.
+        renderIsoSetZoom(renderIsoGetZoom() - 0.1);
+        break;
     case KEY_HOME:
         if (gDude->elevation != gElevation) {
             mapSetElevation(gDude->elevation);

@@ -946,6 +946,21 @@ bool renderIsoPanShift(int screenDx, int screenDy)
         renderMarkDirtyAmbient(&moved);
     }
 
+    // The world-space list needs the same treatment, or ring cells around
+    // fresh world updates (the dude and the hex cursor - the screen
+    // center) display one shift behind.
+    SDL_Rect worldPending[kMaxDirtyRects];
+    int worldPendingCount = gWorldDirtyRectCount;
+    memcpy(worldPending, gWorldDirtyRects, sizeof(SDL_Rect) * worldPendingCount);
+    for (int i = 0; i < worldPendingCount; i++) {
+        Rect moved;
+        moved.left = worldPending[i].x - screenDx;
+        moved.top = worldPending[i].y - screenDy;
+        moved.right = moved.left + worldPending[i].w - 1;
+        moved.bottom = moved.top + worldPending[i].h - 1;
+        renderMarkWorldDirty(&moved);
+    }
+
     // Transparent windows above the iso window (touch overlay buttons) get
     // recomposited by the suppressed refresh with their marks dropped -
     // mark their rects explicitly.
@@ -1015,13 +1030,24 @@ void renderIsoSetZoom(double zoom)
 // grows it up to the full world window.
 void renderIsoZoomCrop(int* cropX, int* cropY, int* cropW, int* cropH)
 {
+    // The iso window's height is NOT the surface height when the interface
+    // bar sits below the map view - mixing the two skews the vertical scale
+    // against the horizontal one (visible aspect distortion while zooming).
     int marginX;
     int marginY;
     mapGetIsoMargins(&marginX, &marginY);
-    int screenW = gSdlTextureSurface != nullptr ? gSdlTextureSurface->w : 0;
-    int screenH = gSdlTextureSurface != nullptr ? gSdlTextureSurface->h : 0;
-    int worldW = screenW + 2 * marginX;
-    int worldH = screenH + 2 * marginY;
+    int worldW = 0;
+    int worldH = 0;
+    Window* isoWin = gIsoWindow != -1 ? windowGetWindow(gIsoWindow) : nullptr;
+    if (isoWin != nullptr) {
+        worldW = isoWin->width;
+        worldH = isoWin->height;
+    } else if (gSdlTextureSurface != nullptr) {
+        worldW = gSdlTextureSurface->w + 2 * marginX;
+        worldH = gSdlTextureSurface->h + 2 * marginY;
+    }
+    int screenW = worldW - 2 * marginX;
+    int screenH = worldH - 2 * marginY;
 
     double zoom = gIsoZoom;
     if (zoom > 1.001 && !isoGpuModeActive()) {
@@ -1047,14 +1073,26 @@ void renderIsoScreenToWorld(int* x, int* y)
     int cropW;
     int cropH;
     renderIsoZoomCrop(&cropX, &cropY, &cropW, &cropH);
-    int screenW = gSdlTextureSurface != nullptr ? gSdlTextureSurface->w : 1;
-    int screenH = gSdlTextureSurface != nullptr ? gSdlTextureSurface->h : 1;
+    int marginX;
+    int marginY;
+    mapGetIsoMargins(&marginX, &marginY);
+    int screenW = 1;
+    int screenH = 1;
+    Window* isoWin = gIsoWindow != -1 ? windowGetWindow(gIsoWindow) : nullptr;
+    if (isoWin != nullptr) {
+        screenW = isoWin->width - 2 * marginX;
+        screenH = isoWin->height - 2 * marginY;
+    }
+    if (screenW < 1) screenW = 1;
+    if (screenH < 1) screenH = 1;
     *x = cropX + static_cast<int>(static_cast<long long>(*x) * cropW / screenW);
     *y = cropY + static_cast<int>(static_cast<long long>(*y) * cropH / screenH);
 }
 
-// Draw the current zoom crop of the world ring scaled to the screen (the
-// pinch zoom-out), as up to 2x2 wrapped ring pieces.
+// Draw the current zoom crop of the world ring scaled to the iso view
+// area (the pinch zoom-out), as up to 2x2 wrapped ring pieces. The dst
+// height is the ISO view height, not the surface height - the interface
+// bar area below is painted by its own window.
 static void isoRingComposeZoomed(int screenW, int screenH)
 {
     SDL_SetTextureScaleMode(gIsoRingTexture, SDL_ScaleModeLinear);
@@ -1064,6 +1102,11 @@ static void isoRingComposeZoomed(int screenW, int screenH)
     int cropW;
     int cropH;
     renderIsoZoomCrop(&cropX, &cropY, &cropW, &cropH);
+    int marginX;
+    int marginY;
+    mapGetIsoMargins(&marginX, &marginY);
+    screenW = gIsoRingW - 2 * marginX;
+    screenH = gIsoRingH - 2 * marginY;
     double scaleX = static_cast<double>(screenW) / cropW;
     double scaleY = static_cast<double>(screenH) / cropH;
 
@@ -1369,8 +1412,8 @@ void renderPresent()
                     int cropW;
                     int cropH;
                     renderIsoZoomCrop(&cropX, &cropY, &cropW, &cropH);
-                    double zscaleX = static_cast<double>(gSdlTextureSurface->w) / cropW;
-                    double zscaleY = static_cast<double>(gSdlTextureSurface->h) / cropH;
+                    double zscaleX = static_cast<double>(gIsoRingW - 2 * marginX) / cropW;
+                    double zscaleY = static_cast<double>(gIsoRingH - 2 * marginY) / cropH;
                     SDL_FRect dst;
                     dst.x = static_cast<float>((clipped.x + marginX - cropX) * zscaleX);
                     dst.y = static_cast<float>((clipped.y + marginY - cropY) * zscaleY);
@@ -1410,29 +1453,6 @@ void renderPresent()
     movieRenderDirectOverlay();
 
     SDL_RenderPresent(gSdlRenderer);
-    // TEMP TEST HOOK (not committed)
-    if (getenv("FALLOUT_ZOOMTEST") != nullptr) {
-        static int shotMask = 0;
-        unsigned int st = SDL_GetTicks();
-        int slot = st > 58000 ? 2 : (st > 53000 && st < 56000 ? 1 : (st > 47000 && st < 49000 ? 0 : -1));
-        if (slot >= 0 && (shotMask & (1 << slot)) == 0) {
-            shotMask |= 1 << slot;
-            int sw = gSdlTextureSurface->w;
-            int sh = gSdlTextureSurface->h;
-            unsigned char* rgb = (unsigned char*)malloc((size_t)sw * sh * 3);
-            if (rgb != nullptr && SDL_RenderReadPixels(gSdlRenderer, nullptr, SDL_PIXELFORMAT_RGB24, rgb, sw * 3) == 0) {
-                char shotName[64];
-                snprintf(shotName, sizeof(shotName), "zoom_shot%d.ppm", slot);
-                FILE* zf = fopen(shotName, "wb");
-                if (zf != nullptr) {
-                    fprintf(zf, "P6 %d %d 255 ", sw, sh);
-                    fwrite(rgb, 1, (size_t)sw * sh * 3, zf);
-                    fclose(zf);
-                }
-            }
-            free(rgb);
-        }
-    }
     gIsoZoomDirty = false;
     gIsoShiftSincePresent = false;
     gIsoShiftSincePresent = false;

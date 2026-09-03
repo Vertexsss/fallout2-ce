@@ -848,28 +848,38 @@ void _mouse_info()
                     }
 
                     static int sPinchPrevSpread = 0;
+                    static int sPinchBaseSpread = 0;
+                    static bool sPinchEngaged = false;
                     static double sPanCarryX = 0.0;
                     static double sPanCarryY = 0.0;
-                    static double sZoomShiftCarryX = 0.0;
-                    static double sZoomShiftCarryY = 0.0;
                     if (gesture.state == kBegan) {
-                        sPinchPrevSpread = touch_active_finger_spread();
+                        sPinchBaseSpread = touch_active_finger_spread();
+                        sPinchPrevSpread = 0;
+                        sPinchEngaged = false;
                         sPanCarryX = 0.0;
                         sPanCarryY = 0.0;
-                        sZoomShiftCarryX = 0.0;
-                        sZoomShiftCarryY = 0.0;
                     }
 
                     // Pinch: fingers moving together zoom the camera OUT
                     // (up to 1.5x more map on screen), moving apart zooms
-                    // back in to the classic 1x view. The view stays
-                    // centered on the camera.
+                    // back to the classic 1x view. A deadband around the
+                    // starting spread keeps ordinary two-finger pans (whose
+                    // spread jitters) from drifting the zoom - the gesture
+                    // becomes a pinch only after a deliberate spread change.
                     if (gesture.numberOfTouches == 2 && gesture.state != kEnded) {
                         int spread = touch_active_finger_spread();
-                        if (spread > 0 && sPinchPrevSpread > 0 && spread != sPinchPrevSpread) {
+                        if (!sPinchEngaged) {
+                            if (sPinchBaseSpread <= 0) {
+                                sPinchBaseSpread = spread;
+                            } else if (spread > 0
+                                && abs(spread - sPinchBaseSpread) > sPinchBaseSpread / 12 + 12) {
+                                sPinchEngaged = true;
+                                sPinchPrevSpread = spread;
+                            }
+                        } else if (spread > 0 && sPinchPrevSpread > 0 && spread != sPinchPrevSpread) {
                             renderIsoSetZoom(renderIsoGetZoom() * sPinchPrevSpread / spread);
-                        }
-                        if (spread > 0) {
+                            sPinchPrevSpread = spread;
+                        } else if (spread > 0) {
                             sPinchPrevSpread = spread;
                         }
                     }

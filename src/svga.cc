@@ -82,6 +82,24 @@ void renderMarkWorldDirty(const Rect* rect)
     if (r.w <= 0 || r.h <= 0) {
         return;
     }
+    bool merged = true;
+    while (merged) {
+        merged = false;
+        for (int i = 0; i < gWorldDirtyRectCount; i++) {
+            SDL_Rect inflated = gWorldDirtyRects[i];
+            inflated.x -= kDirtyMergeSlackPx;
+            inflated.y -= kDirtyMergeSlackPx;
+            inflated.w += 2 * kDirtyMergeSlackPx;
+            inflated.h += 2 * kDirtyMergeSlackPx;
+            if (SDL_HasIntersection(&inflated, &r) == SDL_TRUE) {
+                SDL_UnionRect(&gWorldDirtyRects[i], &r, &r);
+                gWorldDirtyRects[i] = gWorldDirtyRects[gWorldDirtyRectCount - 1];
+                gWorldDirtyRectCount--;
+                merged = true;
+                break;
+            }
+        }
+    }
     if (gWorldDirtyRectCount < kMaxDirtyRects) {
         gWorldDirtyRects[gWorldDirtyRectCount++] = r;
     } else {
@@ -1016,10 +1034,12 @@ void renderIsoSetZoom(double zoom)
     if (mapEdgeIsEnabled()) {
         zoom = 1.0;
     }
-    if (zoom < 1.02) {
+    // Pure clamp - snapping mid-gesture popped the scale every time the
+    // value crossed the snap threshold. The gesture release settles it.
+    if (zoom < 1.0) {
         zoom = 1.0;
     }
-    if (zoom > 1.48) {
+    if (zoom > 1.5) {
         zoom = 1.5;
     }
     if (zoom != gIsoZoom) {
@@ -1174,6 +1194,30 @@ void renderMarkDirtyAmbient(const SDL_Rect* rect)
     full.w = gSdlTextureSurface->w;
     full.h = gSdlTextureSurface->h;
 
+    // Mirror the UNCLIPPED rect into the world-space ring list first: the
+    // screen clip below drops the part beyond the screen edge, which in
+    // world terms is the band just outside the 1x crop - without the
+    // mirror that band goes stale in the ring and shows as a thin seam
+    // trailing the motion at zoom-out.
+    {
+        int marginX;
+        int marginY;
+        mapGetIsoMargins(&marginX, &marginY);
+        Rect world;
+        if (rect == nullptr) {
+            world.left = 0;
+            world.top = 0;
+            world.right = full.w + 2 * marginX - 1;
+            world.bottom = full.h + 2 * marginY - 1;
+        } else {
+            world.left = rect->x + marginX;
+            world.top = rect->y + marginY;
+            world.right = rect->x + rect->w - 1 + marginX;
+            world.bottom = rect->y + rect->h - 1 + marginY;
+        }
+        renderMarkWorldDirty(&world);
+    }
+
     SDL_Rect clipped;
     if (rect == nullptr) {
         clipped = full;
@@ -1303,31 +1347,17 @@ void renderPresent()
             uploadFailed = true;
         }
 
-        if (isoMode) {
-            int ringMarginX;
-            int ringMarginY;
-            mapGetIsoMargins(&ringMarginX, &ringMarginY);
-            if (!ringSawFullRect && r.w >= gSdlTextureSurface->w && r.h >= gSdlTextureSurface->h) {
-                // A full-screen repaint validates the whole ring, margins
-                // included - the world buffer always holds the full world.
-                SDL_Rect fullRing = { 0, 0, gIsoRingW, gIsoRingH };
-                if (!isoRingUpload(fullRing)) {
-                    uploadFailed = true;
-                }
-                ringSawFullRect = true;
-            } else {
-                // Screen-space dirt maps into the world ring at +margin.
-                SDL_Rect worldRect = r;
-                worldRect.x += ringMarginX;
-                worldRect.y += ringMarginY;
-                SDL_Rect isoArea = { 0, 0, gIsoRingW, gIsoRingH };
-                SDL_Rect isoPart;
-                if (SDL_IntersectRect(&worldRect, &isoArea, &isoPart) == SDL_TRUE) {
-                    if (!isoRingUpload(isoPart)) {
-                        uploadFailed = true;
-                    }
-                }
+        if (isoMode && !ringSawFullRect
+            && r.w >= gSdlTextureSurface->w && r.h >= gSdlTextureSurface->h) {
+            // A full-screen repaint validates the whole ring, margins
+            // included - the world buffer always holds the full world.
+            // Partial ring updates come from the world-space list alone
+            // (every ambient mark mirrors into it unclipped).
+            SDL_Rect fullRing = { 0, 0, gIsoRingW, gIsoRingH };
+            if (!isoRingUpload(fullRing)) {
+                uploadFailed = true;
             }
+            ringSawFullRect = true;
         }
 
         gStatUploadBytes += static_cast<long long>(r.w) * r.h * gSdlTextureSurface->format->BytesPerPixel;

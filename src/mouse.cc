@@ -848,43 +848,61 @@ void _mouse_info()
                     }
 
                     static int sPinchPrevSpread = 0;
-                    static bool sPinchEngaged = false;
-                    static double sPinchSpreadTravel = 0.0;
-                    static double sPinchPanTravel = 0.0;
                     static double sPanCarryX = 0.0;
                     static double sPanCarryY = 0.0;
+                    static double sZoomAnchorCarryX = 0.0;
+                    static double sZoomAnchorCarryY = 0.0;
                     if (gesture.state == kBegan) {
                         sPinchPrevSpread = touch_active_finger_spread();
-                        sPinchEngaged = false;
-                        sPinchSpreadTravel = 0.0;
-                        sPinchPanTravel = 0.0;
                         sPanCarryX = 0.0;
                         sPanCarryY = 0.0;
+                        sZoomAnchorCarryX = 0.0;
+                        sZoomAnchorCarryY = 0.0;
                     }
 
-                    // Pinch vs pan: a pan moves both fingers TOGETHER (big
-                    // centroid travel, jittery spread), a pinch moves them
-                    // APART or TOWARD each other (spread travel dominates).
-                    // Engage the zoom only once accumulated spread travel
-                    // clearly outweighs accumulated pan travel - a plain
-                    // two-finger pan must never drift the zoom.
+                    // The standard two-finger gesture: pan and zoom run
+                    // SIMULTANEOUSLY, no modes and no thresholds (the way
+                    // UIPinchGestureRecognizer / map apps do it). Spread
+                    // jitter integrates to zero, and the zoom is anchored
+                    // at the finger centroid, so unintended scale noise is
+                    // imperceptible while a deliberate pinch responds
+                    // instantly. Fingers together = zoom out.
                     if (gesture.numberOfTouches == 2 && gesture.state != kEnded) {
                         int spread = touch_active_finger_spread();
-                        if (spread > 0 && sPinchPrevSpread > 0) {
-                            if (!sPinchEngaged) {
-                                sPinchSpreadTravel += abs(spread - sPinchPrevSpread);
-                                sPinchPanTravel += sqrt(static_cast<double>(dxPix) * dxPix
-                                    + static_cast<double>(dyPix) * dyPix);
-                                if (sPinchSpreadTravel > 24.0
-                                    && sPinchSpreadTravel > 0.8 * sPinchPanTravel) {
-                                    sPinchEngaged = true;
+                        if (spread > 0 && sPinchPrevSpread > 0 && spread != sPinchPrevSpread) {
+                            double oldZoom = renderIsoGetZoom();
+                            renderIsoSetZoom(oldZoom * sPinchPrevSpread / spread);
+                            double newZoom = renderIsoGetZoom();
+                            if (newZoom != oldZoom) {
+                                // Keep the world point under the pinch
+                                // centroid stationary: world(S) = const
+                                // requires a camera shift of
+                                // (oldZoom - newZoom) * (S - center).
+                                sZoomAnchorCarryX += (oldZoom - newZoom) * (gesture.x - screenGetWidth() / 2.0);
+                                sZoomAnchorCarryY += (oldZoom - newZoom) * (gesture.y - screenGetVisibleHeight() / 2.0);
+                                int anchorX = static_cast<int>(sZoomAnchorCarryX);
+                                int anchorY = static_cast<int>(sZoomAnchorCarryY);
+                                sZoomAnchorCarryX -= anchorX;
+                                sZoomAnchorCarryY -= anchorY;
+                                if (anchorX != 0 || anchorY != 0) {
+                                    mapScrollPixels(anchorX, anchorY);
                                 }
-                            } else if (spread != sPinchPrevSpread) {
-                                renderIsoSetZoom(renderIsoGetZoom() * sPinchPrevSpread / spread);
                             }
                         }
                         if (spread > 0) {
                             sPinchPrevSpread = spread;
+                        }
+                    }
+
+                    // Release settles the zoom to the nearest end when it
+                    // is already close - one gentle adjustment instead of
+                    // mid-gesture snapping.
+                    if (gesture.state == kEnded) {
+                        double endZoom = renderIsoGetZoom();
+                        if (endZoom < 1.06) {
+                            renderIsoSetZoom(1.0);
+                        } else if (endZoom > 1.44) {
+                            renderIsoSetZoom(1.5);
                         }
                     }
 

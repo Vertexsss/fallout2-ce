@@ -848,38 +848,42 @@ void _mouse_info()
                     }
 
                     static int sPinchPrevSpread = 0;
-                    static int sPinchBaseSpread = 0;
                     static bool sPinchEngaged = false;
+                    static double sPinchSpreadTravel = 0.0;
+                    static double sPinchPanTravel = 0.0;
                     static double sPanCarryX = 0.0;
                     static double sPanCarryY = 0.0;
                     if (gesture.state == kBegan) {
-                        sPinchBaseSpread = touch_active_finger_spread();
-                        sPinchPrevSpread = 0;
+                        sPinchPrevSpread = touch_active_finger_spread();
                         sPinchEngaged = false;
+                        sPinchSpreadTravel = 0.0;
+                        sPinchPanTravel = 0.0;
                         sPanCarryX = 0.0;
                         sPanCarryY = 0.0;
                     }
 
-                    // Pinch: fingers moving together zoom the camera OUT
-                    // (up to 1.5x more map on screen), moving apart zooms
-                    // back to the classic 1x view. A deadband around the
-                    // starting spread keeps ordinary two-finger pans (whose
-                    // spread jitters) from drifting the zoom - the gesture
-                    // becomes a pinch only after a deliberate spread change.
+                    // Pinch vs pan: a pan moves both fingers TOGETHER (big
+                    // centroid travel, jittery spread), a pinch moves them
+                    // APART or TOWARD each other (spread travel dominates).
+                    // Engage the zoom only once accumulated spread travel
+                    // clearly outweighs accumulated pan travel - a plain
+                    // two-finger pan must never drift the zoom.
                     if (gesture.numberOfTouches == 2 && gesture.state != kEnded) {
                         int spread = touch_active_finger_spread();
-                        if (!sPinchEngaged) {
-                            if (sPinchBaseSpread <= 0) {
-                                sPinchBaseSpread = spread;
-                            } else if (spread > 0
-                                && abs(spread - sPinchBaseSpread) > sPinchBaseSpread / 12 + 12) {
-                                sPinchEngaged = true;
-                                sPinchPrevSpread = spread;
+                        if (spread > 0 && sPinchPrevSpread > 0) {
+                            if (!sPinchEngaged) {
+                                sPinchSpreadTravel += abs(spread - sPinchPrevSpread);
+                                sPinchPanTravel += sqrt(static_cast<double>(dxPix) * dxPix
+                                    + static_cast<double>(dyPix) * dyPix);
+                                if (sPinchSpreadTravel > 24.0
+                                    && sPinchSpreadTravel > 0.8 * sPinchPanTravel) {
+                                    sPinchEngaged = true;
+                                }
+                            } else if (spread != sPinchPrevSpread) {
+                                renderIsoSetZoom(renderIsoGetZoom() * sPinchPrevSpread / spread);
                             }
-                        } else if (spread > 0 && sPinchPrevSpread > 0 && spread != sPinchPrevSpread) {
-                            renderIsoSetZoom(renderIsoGetZoom() * sPinchPrevSpread / spread);
-                            sPinchPrevSpread = spread;
-                        } else if (spread > 0) {
+                        }
+                        if (spread > 0) {
                             sPinchPrevSpread = spread;
                         }
                     }

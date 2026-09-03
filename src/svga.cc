@@ -717,7 +717,7 @@ static int gIsoRingOx = 0;
 static int gIsoRingOy = 0;
 static bool gIsoRingContentValid = false;
 static bool gIsoModeLastPresent = false;
-static bool gIsoShiftSincePresent = false;
+static int gIsoShiftsSincePresent = 0;
 
 // Pinch zoom: a pure presentation transform of the iso view. The engine
 // keeps rendering the world 1:1 into the ring; the compose scales a
@@ -913,10 +913,14 @@ bool renderIsoPanShift(int screenDx, int screenDy)
         // the caller will do fills the ring.
         return false;
     }
-    if (gIsoShiftSincePresent) {
-        // A second shift before the pending strips were uploaded would
-        // leave them at pre-shift coordinates - let the caller fall back
-        // to a full refresh for this frame.
+    if (gIsoShiftsSincePresent >= 3) {
+        // Runaway shifts within one present would balloon the re-marked
+        // rects; fall back to a full refresh. Two shifts per present are
+        // normal on the iPad (120Hz touch events against 60Hz presents) -
+        // the shift-time re-marks below keep every pending rect correct,
+        // and falling back on each second shift meant a 2.25x full-world
+        // refresh every other pan frame (the "interior updates late"
+        // feel).
         return false;
     }
     if (gDirtyRectCount > 4) {
@@ -929,7 +933,7 @@ bool renderIsoPanShift(int screenDx, int screenDy)
         return false;
     }
 
-    gIsoShiftSincePresent = true;
+    gIsoShiftsSincePresent++;
 
     // Anything drawn into the iso buffer since the last present was marked
     // at pre-shift coordinates; its ring cells now map one shift away and
@@ -1454,9 +1458,7 @@ void renderPresent()
 
     SDL_RenderPresent(gSdlRenderer);
     gIsoZoomDirty = false;
-    gIsoShiftSincePresent = false;
-    gIsoShiftSincePresent = false;
-    gIsoShiftSincePresent = false;
+    gIsoShiftsSincePresent = 0;
 
     // A transiently failed texture upload (Metal around app suspension)
     // would otherwise leave stale pixels - ghost cursor images - in the

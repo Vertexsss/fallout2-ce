@@ -707,6 +707,14 @@ static MapStepOutcome mapTryStepCenter(int stepsX, int stepsY)
 // the full-view tile rendering during smooth panning.
 static void isoWindowShiftPixels(int screenDx, int screenDy)
 {
+    // A camera pan is real on-screen motion even when no input event
+    // arrives with it (edge scroll holds the mouse still against the
+    // border). The strips are marked ambient (color cycling must not
+    // reset the idle timer), so without this the fps limiter drops to the
+    // idle tier ~idle_grace_ms into a continuous scroll and moves the
+    // thread to the E-cores - the "stutters half a second into a drag".
+    sharedFpsLimiter.notifyActivity();
+
     Rect r1;
     rectCopy(&r1, &gWorldRect);
     // At 1x the exposed strips repaint at the edge of the visible crop,
@@ -888,6 +896,7 @@ int mapScrollPixels(int dxPixels, int dyPixels)
         // borders), and reporting -1 made pan and inertia stall against
         // the border. Drop this tick's sub-tile residual instead and
         // report movement.
+        sharedFpsLimiter.notifyActivity();
         return 0;
     }
 
@@ -962,6 +971,12 @@ int mapScroll(int dx, int dy, bool fastPaced)
     if (tileSetCenter(newCenterTile, 0) == -1) {
         return -1;
     }
+
+    // Edge/wheel/keyboard scroll commits a real camera move here; mark it
+    // as activity so a continuous scroll (mouse held at the border, no
+    // fresh SDL events) does not decay into the idle tier. This path does
+    // its own strip blit rather than routing through isoWindowShiftPixels.
+    sharedFpsLimiter.notifyActivity();
 
     Rect r1;
     rectCopy(&r1, &gWorldRect);

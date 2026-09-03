@@ -1364,6 +1364,7 @@ static void op_tile_under_cursor(Program* program)
     int x;
     int y;
     mouseGetPosition(&x, &y);
+    isoScreenToWorld(&x, &y);
 
     int tile = tileFromScreenXY(x, y);
     programStackPushInteger(program, tile);

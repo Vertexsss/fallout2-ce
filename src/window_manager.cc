@@ -325,12 +325,14 @@ int windowCreate(int x, int y, int width, int height, ColorWithFlags color, int 
         return -1;
     }
 
-    if (width > rectGetWidth(&_scr_size)) {
-        return -1;
-    }
+    if ((flags & WINDOW_OVERSIZED) == 0) {
+        if (width > rectGetWidth(&_scr_size)) {
+            return -1;
+        }
 
-    if (height > rectGetHeight(&_scr_size)) {
-        return -1;
+        if (height > rectGetHeight(&_scr_size)) {
+            return -1;
+        }
     }
 
     Window* window = gWindows[gWindowsLength] = (Window*)internal_malloc(sizeof(*window));
@@ -725,24 +727,26 @@ void _win_move(int win, int x, int y)
     Rect rect;
     rectCopy(&rect, &(window->rect));
 
-    if (x < 0) {
-        x = 0;
-    }
+    if ((window->flags & WINDOW_OVERSIZED) == 0) {
+        if (x < 0) {
+            x = 0;
+        }
 
-    if (y < 0) {
-        y = 0;
-    }
+        if (y < 0) {
+            y = 0;
+        }
 
-    if ((window->flags & WINDOW_MANAGED) != 0) {
-        x += 2;
-    }
+        if ((window->flags & WINDOW_MANAGED) != 0) {
+            x += 2;
+        }
 
-    if (x + window->width - 1 > _scr_size.right) {
-        x = _scr_size.right - window->width + 1;
-    }
+        if (x + window->width - 1 > _scr_size.right) {
+            x = _scr_size.right - window->width + 1;
+        }
 
-    if (y + window->height - 1 > _scr_size.bottom) {
-        y = _scr_size.bottom - window->height + 1;
+        if (y + window->height - 1 > _scr_size.bottom) {
+            y = _scr_size.bottom - window->height + 1;
+        }
     }
 
     if ((window->flags & WINDOW_MANAGED) != 0) {
@@ -834,6 +838,13 @@ void _GNW_win_refresh(Window* window, Rect* rect, unsigned char* dest)
         refreshRectList->rect.top = std::max(window->rect.top, rect->top);
         refreshRectList->rect.right = std::min(window->rect.right, rect->right);
         refreshRectList->rect.bottom = std::min(window->rect.bottom, rect->bottom);
+
+        // An oversized window extends past the screen; every blit below
+        // targets screen-sized buffers, so clip to the screen up front.
+        refreshRectList->rect.left = std::max(refreshRectList->rect.left, _scr_size.left);
+        refreshRectList->rect.top = std::max(refreshRectList->rect.top, _scr_size.top);
+        refreshRectList->rect.right = std::min(refreshRectList->rect.right, _scr_size.right);
+        refreshRectList->rect.bottom = std::min(refreshRectList->rect.bottom, _scr_size.bottom);
 
         if (refreshRectList->rect.right >= refreshRectList->rect.left && refreshRectList->rect.bottom >= refreshRectList->rect.top) {
             if (dest) {

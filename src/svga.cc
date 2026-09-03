@@ -20,6 +20,7 @@
 #include "game.h"
 #include "interface.h"
 #include "map.h"
+#include "map_edge.h"
 #include "memory.h"
 #include "mouse.h"
 #include "movie.h"
@@ -63,6 +64,30 @@ constexpr int kMaxDirtyRects = 16;
 constexpr int kDirtyMergeSlackPx = 32;
 static SDL_Rect gDirtyRects[kMaxDirtyRects];
 static int gDirtyRectCount = 0;
+
+// World-space (iso window local) dirt for the GPU ring. Screen-space dirt
+// covers the visible crop, but world renders in the margins (pan strips,
+// off-crop animation) never reach the screen list - without these marks
+// stale ring cells slide into view when the camera moves.
+static SDL_Rect gWorldDirtyRects[kMaxDirtyRects];
+static int gWorldDirtyRectCount = 0;
+
+void renderMarkWorldDirty(const Rect* rect)
+{
+    SDL_Rect r;
+    r.x = rect->left;
+    r.y = rect->top;
+    r.w = rect->right - rect->left + 1;
+    r.h = rect->bottom - rect->top + 1;
+    if (r.w <= 0 || r.h <= 0) {
+        return;
+    }
+    if (gWorldDirtyRectCount < kMaxDirtyRects) {
+        gWorldDirtyRects[gWorldDirtyRectCount++] = r;
+    } else {
+        SDL_UnionRect(&gWorldDirtyRects[0], &r, &gWorldDirtyRects[0]);
+    }
+}
 
 
 // Which palette indices currently appear on the game surface. Lets ambient
@@ -694,6 +719,13 @@ static bool gIsoRingContentValid = false;
 static bool gIsoModeLastPresent = false;
 static bool gIsoShiftSincePresent = false;
 
+// Pinch zoom: a pure presentation transform of the iso view. The engine
+// keeps rendering the world 1:1 into the ring; the compose scales a
+// centered crop of it to the window. UI windows above the iso view stay
+// unscaled. Range 1.0 .. 1.5, snapped at both ends.
+static double gIsoZoom = 1.0;
+static bool gIsoZoomDirty = false;
+
 static int isoRingWrap(int value, int size)
 {
     value %= size;
@@ -728,10 +760,13 @@ static bool isoGpuModeActive()
     if (window == nullptr || (window->flags & WINDOW_HIDDEN) != 0) {
         return false;
     }
-    // The ring matches the iso window only while it sits at the origin and
-    // spans the full width (it always does; be defensive).
-    return window->rect.left == 0 && window->rect.top == 0
-        && window->width == gSdlTextureSurface->w;
+    // The ring matches the iso world window only while it sits at its
+    // margin-offset origin and spans the full oversized width.
+    int marginX;
+    int marginY;
+    mapGetIsoMargins(&marginX, &marginY);
+    return window->rect.left == -marginX && window->rect.top == -marginY
+        && window->width == gSdlTextureSurface->w + 2 * marginX;
 }
 
 static bool isoRingEnsure(int width, int height)
@@ -835,11 +870,14 @@ static bool isoRingUpload(const SDL_Rect& r)
     return ok;
 }
 
-// Draw the ring onto the screen area (0,0,w,h) as up to 4 wrapped pieces.
-static void isoRingCompose(int width, int height)
+// Draw the ring region starting at srcOffset onto the screen area
+// (0,0,w,h) as up to 4 wrapped pieces.
+static void isoRingCompose(int width, int height, int srcOffsetX, int srcOffsetY)
 {
-    int firstW = gIsoRingW - gIsoRingOx < width ? gIsoRingW - gIsoRingOx : width;
-    int firstH = gIsoRingH - gIsoRingOy < height ? gIsoRingH - gIsoRingOy : height;
+    int ox = isoRingWrap(gIsoRingOx + srcOffsetX, gIsoRingW);
+    int oy = isoRingWrap(gIsoRingOy + srcOffsetY, gIsoRingH);
+    int firstW = gIsoRingW - ox < width ? gIsoRingW - ox : width;
+    int firstH = gIsoRingH - oy < height ? gIsoRingH - oy : height;
 
     for (int part = 0; part < 4; part++) {
         bool rightPart = (part & 1) != 0;
@@ -853,8 +891,8 @@ static void isoRingCompose(int width, int height)
             continue;
         }
         SDL_Rect src;
-        src.x = rightPart ? 0 : gIsoRingOx;
-        src.y = bottomPart ? 0 : gIsoRingOy;
+        src.x = rightPart ? 0 : ox;
+        src.y = bottomPart ? 0 : oy;
         src.w = dst.w;
         src.h = dst.h;
         SDL_RenderCopy(gSdlRenderer, gIsoRingTexture, &src, &dst);
@@ -914,7 +952,7 @@ bool renderIsoPanShift(int screenDx, int screenDy)
     {
         Rect above[50];
         int aboveCount = windowGetVisibleRectsAbove(gIsoWindow, above, 50);
-        SDL_Rect isoArea = { 0, 0, gIsoRingW, gIsoRingH };
+        SDL_Rect isoArea = { 0, 0, gSdlTextureSurface->w, gSdlTextureSurface->h };
         for (int i = 0; i < aboveCount; i++) {
             SDL_Rect wr;
             wr.x = above[i].left;
@@ -946,6 +984,117 @@ bool renderIsoPanShift(int screenDx, int screenDy)
     gIsoRingOx = isoRingWrap(gIsoRingOx + screenDx, gIsoRingW);
     gIsoRingOy = isoRingWrap(gIsoRingOy + screenDy, gIsoRingH);
     return true;
+}
+
+double renderIsoGetZoom()
+{
+    return gIsoZoom;
+}
+
+void renderIsoSetZoom(double zoom)
+{
+    // EDG maps (authored edge alignment) keep the classic 1x view.
+    if (mapEdgeIsEnabled()) {
+        zoom = 1.0;
+    }
+    if (zoom < 1.02) {
+        zoom = 1.0;
+    }
+    if (zoom > 1.48) {
+        zoom = 1.5;
+    }
+    if (zoom != gIsoZoom) {
+        gIsoZoom = zoom;
+        gIsoZoomDirty = true;
+        sharedFpsLimiter.notifyActivity();
+    }
+}
+
+// The visible crop of the oversized world window, in world (window-local)
+// coordinates. At 1x it is the centered screen-sized rect; zooming out
+// grows it up to the full world window.
+void renderIsoZoomCrop(int* cropX, int* cropY, int* cropW, int* cropH)
+{
+    int marginX;
+    int marginY;
+    mapGetIsoMargins(&marginX, &marginY);
+    int screenW = gSdlTextureSurface != nullptr ? gSdlTextureSurface->w : 0;
+    int screenH = gSdlTextureSurface != nullptr ? gSdlTextureSurface->h : 0;
+    int worldW = screenW + 2 * marginX;
+    int worldH = screenH + 2 * marginY;
+
+    double zoom = gIsoZoom;
+    if (zoom > 1.001 && !isoGpuModeActive()) {
+        // The classic path composes the 1x center crop - inputs must match.
+        zoom = 1.0;
+    }
+
+    int w = static_cast<int>(screenW * zoom + 0.5);
+    int h = static_cast<int>(screenH * zoom + 0.5);
+    if (w > worldW) w = worldW;
+    if (h > worldH) h = worldH;
+    *cropW = w;
+    *cropH = h;
+    *cropX = (worldW - w) / 2;
+    *cropY = (worldH - h) / 2;
+}
+
+// Screen point -> world point through the current zoom crop.
+void renderIsoScreenToWorld(int* x, int* y)
+{
+    int cropX;
+    int cropY;
+    int cropW;
+    int cropH;
+    renderIsoZoomCrop(&cropX, &cropY, &cropW, &cropH);
+    int screenW = gSdlTextureSurface != nullptr ? gSdlTextureSurface->w : 1;
+    int screenH = gSdlTextureSurface != nullptr ? gSdlTextureSurface->h : 1;
+    *x = cropX + static_cast<int>(static_cast<long long>(*x) * cropW / screenW);
+    *y = cropY + static_cast<int>(static_cast<long long>(*y) * cropH / screenH);
+}
+
+// Draw the current zoom crop of the world ring scaled to the screen (the
+// pinch zoom-out), as up to 2x2 wrapped ring pieces.
+static void isoRingComposeZoomed(int screenW, int screenH)
+{
+    SDL_SetTextureScaleMode(gIsoRingTexture, SDL_ScaleModeLinear);
+
+    int cropX;
+    int cropY;
+    int cropW;
+    int cropH;
+    renderIsoZoomCrop(&cropX, &cropY, &cropW, &cropH);
+    double scaleX = static_cast<double>(screenW) / cropW;
+    double scaleY = static_cast<double>(screenH) / cropH;
+
+    int startTx = isoRingWrap(cropX + gIsoRingOx, gIsoRingW);
+    int firstW = gIsoRingW - startTx < cropW ? gIsoRingW - startTx : cropW;
+    int spansX[2][3] = { { startTx, 0, firstW }, { 0, firstW, cropW - firstW } };
+    int startTy = isoRingWrap(cropY + gIsoRingOy, gIsoRingH);
+    int firstH = gIsoRingH - startTy < cropH ? gIsoRingH - startTy : cropH;
+    int spansY[2][3] = { { startTy, 0, firstH }, { 0, firstH, cropH - firstH } };
+
+    for (int iy = 0; iy < 2; iy++) {
+        if (spansY[iy][2] <= 0) {
+            continue;
+        }
+        for (int ix = 0; ix < 2; ix++) {
+            if (spansX[ix][2] <= 0) {
+                continue;
+            }
+            SDL_Rect src;
+            src.x = spansX[ix][0];
+            src.y = spansY[iy][0];
+            src.w = spansX[ix][2];
+            src.h = spansY[iy][2];
+            SDL_FRect dst;
+            dst.x = static_cast<float>(spansX[ix][1] * scaleX);
+            dst.y = static_cast<float>(spansY[iy][1] * scaleY);
+            dst.w = static_cast<float>(src.w * scaleX);
+            dst.h = static_cast<float>(src.h * scaleY);
+            SDL_RenderCopyF(gSdlRenderer, gIsoRingTexture, &src, &dst);
+        }
+    }
 }
 
 void renderMarkDirty(const SDL_Rect* rect)
@@ -1022,8 +1171,9 @@ void renderPresent()
     }
 
     // Nothing changed since the last present - do not burn a texture upload,
-    // a draw call and a swap on an identical frame.
-    if (gDirtyRectCount == 0) {
+    // a draw call and a swap on an identical frame. A zoom change re-composes
+    // even with no dirty rects.
+    if (gDirtyRectCount == 0 && !gIsoZoomDirty) {
         return;
     }
 
@@ -1107,18 +1257,28 @@ void renderPresent()
         }
 
         if (isoMode) {
-            SDL_Rect isoArea;
-            isoArea.x = 0;
-            isoArea.y = 0;
-            isoArea.w = gIsoRingW;
-            isoArea.h = gIsoRingH;
-            SDL_Rect isoPart;
-            if (SDL_IntersectRect(&r, &isoArea, &isoPart) == SDL_TRUE) {
-                if (!isoRingUpload(isoPart)) {
+            int ringMarginX;
+            int ringMarginY;
+            mapGetIsoMargins(&ringMarginX, &ringMarginY);
+            if (!ringSawFullRect && r.w >= gSdlTextureSurface->w && r.h >= gSdlTextureSurface->h) {
+                // A full-screen repaint validates the whole ring, margins
+                // included - the world buffer always holds the full world.
+                SDL_Rect fullRing = { 0, 0, gIsoRingW, gIsoRingH };
+                if (!isoRingUpload(fullRing)) {
                     uploadFailed = true;
                 }
-                if (isoPart.w == gIsoRingW && isoPart.h == gIsoRingH) {
-                    ringSawFullRect = true;
+                ringSawFullRect = true;
+            } else {
+                // Screen-space dirt maps into the world ring at +margin.
+                SDL_Rect worldRect = r;
+                worldRect.x += ringMarginX;
+                worldRect.y += ringMarginY;
+                SDL_Rect isoArea = { 0, 0, gIsoRingW, gIsoRingH };
+                SDL_Rect isoPart;
+                if (SDL_IntersectRect(&worldRect, &isoArea, &isoPart) == SDL_TRUE) {
+                    if (!isoRingUpload(isoPart)) {
+                        uploadFailed = true;
+                    }
                 }
             }
         }
@@ -1130,6 +1290,25 @@ void renderPresent()
             gStatMaxRectH = r.h;
         }
     }
+    // World-space dirt (margins included) reaches the ring directly.
+    if (isoMode) {
+        SDL_Rect ringArea = { 0, 0, gIsoRingW, gIsoRingH };
+        for (int i = 0; i < gWorldDirtyRectCount; i++) {
+            if (ringSawFullRect) {
+                break;
+            }
+            SDL_Rect part;
+            if (SDL_IntersectRect(&gWorldDirtyRects[i], &ringArea, &part) == SDL_TRUE) {
+                if (!isoRingUpload(part)) {
+                    uploadFailed = true;
+                }
+            }
+        }
+    }
+    if (!uploadFailed) {
+        gWorldDirtyRectCount = 0;
+    }
+
     if (isoMode && ringSawFullRect && !uploadFailed) {
         gIsoRingContentValid = true;
     }
@@ -1138,7 +1317,17 @@ void renderPresent()
     gStatPresents++;
     SDL_RenderClear(gSdlRenderer);
     if (isoMode && gIsoRingContentValid) {
-        isoRingCompose(gIsoRingW, gIsoRingH);
+        bool zoomed = gIsoZoom > 1.001;
+
+        if (zoomed) {
+            isoRingComposeZoomed(gSdlTextureSurface->w, gSdlTextureSurface->h);
+        } else {
+            int composeMarginX;
+            int composeMarginY;
+            mapGetIsoMargins(&composeMarginX, &composeMarginY);
+            SDL_SetTextureScaleMode(gIsoRingTexture, SDL_ScaleModeNearest);
+            isoRingCompose(gSdlTextureSurface->w, gSdlTextureSurface->h, composeMarginX, composeMarginY);
+        }
 
         // Everything above the iso window comes from the classic texture -
         // its pixels for exactly these rects are always freshly uploaded.
@@ -1156,6 +1345,9 @@ void renderPresent()
         }
 
         // The software cursor is composited into the classic texture too.
+        // Under zoom the world part of the cursor scales with the world (the
+        // classic texture's pixels equal the ring's for the same rect, so
+        // the paste is seamless); pieces over UI windows draw 1:1 on top.
         if (cursorVisible) {
             SDL_Rect cr;
             cr.x = cursorRect.left;
@@ -1165,7 +1357,39 @@ void renderPresent()
             SDL_Rect full = { 0, 0, gSdlTextureSurface->w, gSdlTextureSurface->h };
             SDL_Rect clipped;
             if (SDL_IntersectRect(&cr, &full, &clipped) == SDL_TRUE) {
-                SDL_RenderCopy(gSdlRenderer, gSdlTexture, &clipped, &clipped);
+                if (zoomed) {
+                    // The classic surface holds the 1x center crop; the
+                    // cursor's screen rect maps into the zoom crop at
+                    // +margin, then scales down with the world.
+                    int marginX;
+                    int marginY;
+                    mapGetIsoMargins(&marginX, &marginY);
+                    int cropX;
+                    int cropY;
+                    int cropW;
+                    int cropH;
+                    renderIsoZoomCrop(&cropX, &cropY, &cropW, &cropH);
+                    double zscaleX = static_cast<double>(gSdlTextureSurface->w) / cropW;
+                    double zscaleY = static_cast<double>(gSdlTextureSurface->h) / cropH;
+                    SDL_FRect dst;
+                    dst.x = static_cast<float>((clipped.x + marginX - cropX) * zscaleX);
+                    dst.y = static_cast<float>((clipped.y + marginY - cropY) * zscaleY);
+                    dst.w = static_cast<float>(clipped.w * zscaleX);
+                    dst.h = static_cast<float>(clipped.h * zscaleY);
+                    SDL_SetTextureScaleMode(gSdlTexture, SDL_ScaleModeLinear);
+                    SDL_RenderCopyF(gSdlRenderer, gSdlTexture, &clipped, &dst);
+                    SDL_SetTextureScaleMode(gSdlTexture, SDL_ScaleModeNearest);
+                    for (int a = 0; a < aboveRectCount; a++) {
+                        SDL_Rect wr = { aboveRects[a].left, aboveRects[a].top,
+                            aboveRects[a].right - aboveRects[a].left + 1, aboveRects[a].bottom - aboveRects[a].top + 1 };
+                        SDL_Rect uiPart;
+                        if (SDL_IntersectRect(&clipped, &wr, &uiPart) == SDL_TRUE) {
+                            SDL_RenderCopy(gSdlRenderer, gSdlTexture, &uiPart, &uiPart);
+                        }
+                    }
+                } else {
+                    SDL_RenderCopy(gSdlRenderer, gSdlTexture, &clipped, &clipped);
+                }
             }
         }
 
@@ -1186,6 +1410,30 @@ void renderPresent()
     movieRenderDirectOverlay();
 
     SDL_RenderPresent(gSdlRenderer);
+    // TEMP TEST HOOK (not committed)
+    if (getenv("FALLOUT_ZOOMTEST") != nullptr) {
+        static int shotMask = 0;
+        unsigned int st = SDL_GetTicks();
+        int slot = st > 58000 ? 2 : (st > 53000 && st < 56000 ? 1 : (st > 47000 && st < 49000 ? 0 : -1));
+        if (slot >= 0 && (shotMask & (1 << slot)) == 0) {
+            shotMask |= 1 << slot;
+            int sw = gSdlTextureSurface->w;
+            int sh = gSdlTextureSurface->h;
+            unsigned char* rgb = (unsigned char*)malloc((size_t)sw * sh * 3);
+            if (rgb != nullptr && SDL_RenderReadPixels(gSdlRenderer, nullptr, SDL_PIXELFORMAT_RGB24, rgb, sw * 3) == 0) {
+                char shotName[64];
+                snprintf(shotName, sizeof(shotName), "zoom_shot%d.ppm", slot);
+                FILE* zf = fopen(shotName, "wb");
+                if (zf != nullptr) {
+                    fprintf(zf, "P6 %d %d 255 ", sw, sh);
+                    fwrite(rgb, 1, (size_t)sw * sh * 3, zf);
+                    fclose(zf);
+                }
+            }
+            free(rgb);
+        }
+    }
+    gIsoZoomDirty = false;
     gIsoShiftSincePresent = false;
     gIsoShiftSincePresent = false;
     gIsoShiftSincePresent = false;

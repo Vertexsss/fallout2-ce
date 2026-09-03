@@ -784,6 +784,9 @@ void _mouse_info()
                 }
             } else if (gesture.type == kPan) {
                 if (!touch_get_pan_mode() && gesture.numberOfTouches == 1) {
+                    // Zoomed out the screen still maps 1:1 to the cursor -
+                    // the cursor is a screen-space entity and every screen
+                    // point lies inside the zoom crop.
                     _mouse_simulate_input(gesture.x - prevx, gesture.y - prevy, 0);
                 } else if (touch_get_pan_mode() || gesture.numberOfTouches == 2) {
                     // Windowed screens (inventory, dialogs) interpret the
@@ -844,8 +847,47 @@ void _mouse_info()
                         gPanLastTicks = nowTicks;
                     }
 
+                    static int sPinchPrevSpread = 0;
+                    static double sPanCarryX = 0.0;
+                    static double sPanCarryY = 0.0;
+                    static double sZoomShiftCarryX = 0.0;
+                    static double sZoomShiftCarryY = 0.0;
+                    if (gesture.state == kBegan) {
+                        sPinchPrevSpread = touch_active_finger_spread();
+                        sPanCarryX = 0.0;
+                        sPanCarryY = 0.0;
+                        sZoomShiftCarryX = 0.0;
+                        sZoomShiftCarryY = 0.0;
+                    }
+
+                    // Pinch: fingers moving together zoom the camera OUT
+                    // (up to 1.5x more map on screen), moving apart zooms
+                    // back in to the classic 1x view. The view stays
+                    // centered on the camera.
+                    if (gesture.numberOfTouches == 2 && gesture.state != kEnded) {
+                        int spread = touch_active_finger_spread();
+                        if (spread > 0 && sPinchPrevSpread > 0 && spread != sPinchPrevSpread) {
+                            renderIsoSetZoom(renderIsoGetZoom() * sPinchPrevSpread / spread);
+                        }
+                        if (spread > 0) {
+                            sPinchPrevSpread = spread;
+                        }
+                    }
+
                     if (dxPix != 0 || dyPix != 0) {
-                        mapScrollPixels(dxPix, dyPix);
+                        // Finger travel is screen-space; zoomed out, one
+                        // screen pixel spans zoom world pixels - scale so
+                        // the map keeps tracking the fingers 1:1 on screen.
+                        double panZoom = renderIsoGetZoom();
+                        sPanCarryX += dxPix * panZoom;
+                        sPanCarryY += dyPix * panZoom;
+                        int panX = static_cast<int>(sPanCarryX);
+                        int panY = static_cast<int>(sPanCarryY);
+                        sPanCarryX -= panX;
+                        sPanCarryY -= panY;
+                        if (panX != 0 || panY != 0) {
+                            mapScrollPixels(panX, panY);
+                        }
                     }
 
                     if (gesture.state == kEnded
@@ -894,8 +936,9 @@ void _mouse_info()
         if (flingDt > 0) {
             gFlingLastTicks = nowTicks;
 
-            gFlingCarryX += gFlingVX * flingDt / 1000.0;
-            gFlingCarryY += gFlingVY * flingDt / 1000.0;
+            double flingZoom = renderIsoGetZoom();
+            gFlingCarryX += gFlingVX * flingDt / 1000.0 * flingZoom;
+            gFlingCarryY += gFlingVY * flingDt / 1000.0 * flingZoom;
             int px = static_cast<int>(gFlingCarryX);
             int py = static_cast<int>(gFlingCarryY);
             gFlingCarryX -= px;

@@ -1,5 +1,6 @@
 #include "touch.h"
 
+#include <math.h>
 #include <string.h>
 
 #include <algorithm>
@@ -172,6 +173,24 @@ int touch_active_finger_count()
         }
     }
     return count;
+}
+
+// Distance in pixels between the two active fingers (0 if fewer than two).
+int touch_active_finger_spread()
+{
+    int firstIndex = -1;
+    for (int index = 0; index < MAX_TOUCHES; index++) {
+        if (touches[index].used && touches[index].phase != TOUCH_PHASE_ENDED) {
+            if (firstIndex == -1) {
+                firstIndex = index;
+            } else {
+                int dx = touches[index].currentLocation.x - touches[firstIndex].currentLocation.x;
+                int dy = touches[index].currentLocation.y - touches[firstIndex].currentLocation.y;
+                return static_cast<int>(sqrt(static_cast<double>(dx) * dx + static_cast<double>(dy) * dy));
+            }
+        }
+    }
+    return 0;
 }
 
 void touch_process_gesture()

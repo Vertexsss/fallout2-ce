@@ -89,6 +89,25 @@ static char _aErrorF2[] = "ERROR! F2";
 // 0x519540 map_scroll_refresh
 static IsoWindowRefreshProc* _map_scroll_refresh = isoWindowRefreshRectGame;
 
+// Margins of the oversized iso world window (zoom-out headroom).
+int gIsoMarginX = 0;
+int gIsoMarginY = 0;
+
+// The world window's own coordinate space: {0, 0, W-1, H-1}.
+static Rect gWorldRect;
+
+void mapGetIsoMargins(int* marginX, int* marginY)
+{
+    *marginX = gIsoMarginX;
+    *marginY = gIsoMarginY;
+}
+
+// Screen point -> world (iso window local) point through the zoom crop.
+void isoScreenToWorld(int* x, int* y)
+{
+    renderIsoScreenToWorld(x, y);
+}
+
 // 0x519544 map_data_elev_flags
 static const MapHeaderFlags _map_data_elev_flags[ELEVATION_COUNT] = {
     MAP_HEADER_ELEVATION_0,
@@ -196,7 +215,17 @@ int isoInit()
     // NOTE: Uninline.
     square_init();
 
-    gIsoWindow = windowCreate(0, 0, screenGetWidth(), screenGetVisibleHeight(), static_cast<ColorWithFlags>(256), 10);
+    // The iso window carries margins on every side (the pinch zoom-out
+    // headroom): the world renders into a window 1.5x the screen, placed at
+    // a negative origin so the screen shows its center. Screen coordinates
+    // relate to world (window-local) coordinates as world = screen + margin
+    // at 1x; the GPU composes the visible crop.
+    gIsoMarginX = screenGetWidth() / 4;
+    gIsoMarginY = screenGetVisibleHeight() / 4;
+
+    gIsoWindow = windowCreate(-gIsoMarginX, -gIsoMarginY,
+        screenGetWidth() + 2 * gIsoMarginX, screenGetVisibleHeight() + 2 * gIsoMarginY,
+        static_cast<ColorWithFlags>(256), 10 | WINDOW_OVERSIZED);
     if (gIsoWindow == -1) {
         debugPrint("win_add failed in iso_init\n");
         return -1;
@@ -213,6 +242,11 @@ int isoInit()
         return -1;
     }
 
+    gWorldRect.left = 0;
+    gWorldRect.top = 0;
+    gWorldRect.right = rectGetWidth(&gIsoWindowRect) - 1;
+    gWorldRect.bottom = rectGetHeight(&gIsoWindowRect) - 1;
+
     if (artInit() != 0) {
         debugPrint("art_init failed in iso_init\n");
         return -1;
@@ -220,14 +254,14 @@ int isoInit()
 
     debugPrint(">art_init\t\t");
 
-    if (tileInit(_square, SQUARE_GRID_WIDTH, SQUARE_GRID_HEIGHT, HEX_GRID_WIDTH, HEX_GRID_HEIGHT, gIsoWindowBuffer, screenGetWidth(), screenGetVisibleHeight(), screenGetWidth(), isoWindowRefreshRect) != 0) {
+    if (tileInit(_square, SQUARE_GRID_WIDTH, SQUARE_GRID_HEIGHT, HEX_GRID_WIDTH, HEX_GRID_HEIGHT, gIsoWindowBuffer, rectGetWidth(&gIsoWindowRect), rectGetHeight(&gIsoWindowRect), rectGetWidth(&gIsoWindowRect), isoWindowRefreshRect) != 0) {
         debugPrint("tile_init failed in iso_init\n");
         return -1;
     }
 
     debugPrint(">tile_init\t\t");
 
-    if (objectsInit(gIsoWindowBuffer, screenGetWidth(), screenGetVisibleHeight(), screenGetWidth()) != 0) {
+    if (objectsInit(gIsoWindowBuffer, rectGetWidth(&gIsoWindowRect), rectGetHeight(&gIsoWindowRect), rectGetWidth(&gIsoWindowRect)) != 0) {
         debugPrint("obj_init failed in iso_init\n");
         return -1;
     }
@@ -674,14 +708,16 @@ static MapStepOutcome mapTryStepCenter(int stepsX, int stepsY)
 static void isoWindowShiftPixels(int screenDx, int screenDy)
 {
     Rect r1;
-    rectCopy(&r1, &gIsoWindowRect);
+    rectCopy(&r1, &gWorldRect);
 
     Rect r2;
     rectCopy(&r2, &r1);
 
-    int width = screenGetWidth() - abs(screenDx);
-    int pitch = screenGetWidth();
-    int height = screenGetVisibleHeight() - abs(screenDy);
+    int worldW = rectGetWidth(&gWorldRect);
+    int worldH = rectGetHeight(&gWorldRect);
+    int width = worldW - abs(screenDx);
+    int pitch = worldW;
+    int height = worldH - abs(screenDy);
 
     if (screenDx < 0) {
         r2.right = r2.left - screenDx;
@@ -695,7 +731,7 @@ static void isoWindowShiftPixels(int screenDx, int screenDy)
     if (screenDy < 0) {
         r1.bottom = r1.top - screenDy;
         src = gIsoWindowBuffer + pitch * (height - 1);
-        dest = gIsoWindowBuffer + pitch * (screenGetVisibleHeight() - 1);
+        dest = gIsoWindowBuffer + pitch * (worldH - 1);
         if (screenDx < 0) {
             dest -= screenDx;
         } else {
@@ -723,10 +759,12 @@ static void isoWindowShiftPixels(int screenDx, int screenDy)
 
     if (screenDx != 0) {
         _map_scroll_refresh(&r2);
+        renderMarkWorldDirty(&r2);
     }
 
     if (screenDy != 0) {
         _map_scroll_refresh(&r1);
+        renderMarkWorldDirty(&r1);
     }
 
     if (renderIsoPanShift(screenDx, screenDy)) {
@@ -742,15 +780,15 @@ static void isoWindowShiftPixels(int screenDx, int screenDy)
 
         SDL_Rect mark;
         if (screenDx != 0) {
-            mark.x = r2.left;
-            mark.y = r2.top;
+            mark.x = r2.left - gIsoMarginX;
+            mark.y = r2.top - gIsoMarginY;
             mark.w = r2.right - r2.left + 1;
             mark.h = r2.bottom - r2.top + 1;
             renderMarkDirtyAmbient(&mark);
         }
         if (screenDy != 0) {
-            mark.x = r1.left;
-            mark.y = r1.top;
+            mark.x = r1.left - gIsoMarginX;
+            mark.y = r1.top - gIsoMarginY;
             mark.w = r1.right - r1.left + 1;
             mark.h = r1.bottom - r1.top + 1;
             renderMarkDirtyAmbient(&mark);
@@ -872,7 +910,7 @@ int mapScrollPixels(int dxPixels, int dyPixels)
     int shiftX = movedX ? dxPixels : 0;
     int shiftY = movedY ? dyPixels : 0;
 
-    if (abs(shiftX) < screenGetWidth() - 32 && abs(shiftY) < screenGetVisibleHeight() - 24) {
+    if (abs(shiftX) < rectGetWidth(&gWorldRect) - 32 && abs(shiftY) < rectGetHeight(&gWorldRect) - 24) {
         isoWindowShiftPixels(shiftX, shiftY);
     } else {
         tileWindowRefresh();
@@ -928,14 +966,16 @@ int mapScroll(int dx, int dy, bool fastPaced)
     }
 
     Rect r1;
-    rectCopy(&r1, &gIsoWindowRect);
+    rectCopy(&r1, &gWorldRect);
 
     Rect r2;
     rectCopy(&r2, &r1);
 
-    int width = screenGetWidth();
+    int worldW = rectGetWidth(&gWorldRect);
+    int worldH = rectGetHeight(&gWorldRect);
+    int width = worldW;
     int pitch = width;
-    int height = screenGetVisibleHeight();
+    int height = worldH;
 
     if (screenDx != 0) {
         width -= 32;
@@ -957,7 +997,7 @@ int mapScroll(int dx, int dy, bool fastPaced)
     if (screenDy < 0) {
         r1.bottom = r1.top - screenDy;
         src = gIsoWindowBuffer + pitch * (height - 1);
-        dest = gIsoWindowBuffer + pitch * (screenGetVisibleHeight() - 1);
+        dest = gIsoWindowBuffer + pitch * (worldH - 1);
         if (screenDx < 0) {
             dest -= screenDx;
         } else {
@@ -985,10 +1025,12 @@ int mapScroll(int dx, int dy, bool fastPaced)
 
     if (screenDx != 0) {
         _map_scroll_refresh(&r2);
+        renderMarkWorldDirty(&r2);
     }
 
     if (screenDy != 0) {
         _map_scroll_refresh(&r1);
+        renderMarkWorldDirty(&r1);
     }
 
     if (renderIsoPanShift(screenDx, screenDy)) {
@@ -1001,15 +1043,15 @@ int mapScroll(int dx, int dy, bool fastPaced)
 
         SDL_Rect mark;
         if (screenDx != 0) {
-            mark.x = r2.left;
-            mark.y = r2.top;
+            mark.x = r2.left - gIsoMarginX;
+            mark.y = r2.top - gIsoMarginY;
             mark.w = r2.right - r2.left + 1;
             mark.h = r2.bottom - r2.top + 1;
             renderMarkDirtyAmbient(&mark);
         }
         if (screenDy != 0) {
-            mark.x = r1.left;
-            mark.y = r1.top;
+            mark.x = r1.left - gIsoMarginX;
+            mark.y = r1.top - gIsoMarginY;
             mark.w = r1.right - r1.left + 1;
             mark.h = r1.bottom - r1.top + 1;
             renderMarkDirtyAmbient(&mark);
@@ -1945,6 +1987,9 @@ static void mapMakeMapsDirectory()
 // 0x483ED0
 static void isoWindowRefreshRect(Rect* rect)
 {
+    // The rect is world-space; the ring needs it even when the visible
+    // (screen-clipped) part is empty - margin renders must not go stale.
+    renderMarkWorldDirty(rect);
     windowRefreshRect(gIsoWindow, rect);
 }
 
@@ -1952,7 +1997,7 @@ static void isoWindowRefreshRect(Rect* rect)
 static void isoWindowRefreshRectGame(Rect* rect)
 {
     Rect rectToUpdate;
-    if (rectIntersection(rect, &gIsoWindowRect, &rectToUpdate) == -1) {
+    if (rectIntersection(rect, &gWorldRect, &rectToUpdate) == -1) {
         return;
     }
 
@@ -1960,10 +2005,10 @@ static void isoWindowRefreshRectGame(Rect* rect)
     bool hasVisArea = mapEdgeComputeVisibleArea(gElevation, &visArea);
 
     // HRP rect_inside_bound_scroll_clip: always clear srcRect, then clip to mapVisibleArea.
-    bufferFill(gIsoWindowBuffer + rectToUpdate.top * rectGetWidth(&gIsoWindowRect) + rectToUpdate.left,
+    bufferFill(gIsoWindowBuffer + rectToUpdate.top * rectGetWidth(&gWorldRect) + rectToUpdate.left,
         rectGetWidth(&rectToUpdate),
         rectGetHeight(&rectToUpdate),
-        rectGetWidth(&gIsoWindowRect),
+        rectGetWidth(&gWorldRect),
         COLOR_FIRST);
 
     if (hasVisArea && rectIntersection(&rectToUpdate, &visArea, &rectToUpdate) == -1) {
@@ -1976,7 +2021,7 @@ static void isoWindowRefreshRectGame(Rect* rect)
     _obj_render_post_roof(&rectToUpdate, gElevation);
 
     if (!hasVisArea) {
-        tile_hires_stencil_draw(&rectToUpdate, gIsoWindowBuffer, rectGetWidth(&gIsoWindowRect), rectGetHeight(&gIsoWindowRect));
+        tile_hires_stencil_draw(&rectToUpdate, gIsoWindowBuffer, rectGetWidth(&gWorldRect), rectGetHeight(&gWorldRect));
     }
 }
 
@@ -1984,7 +2029,7 @@ static void isoWindowRefreshRectGame(Rect* rect)
 static void isoWindowRefreshRectMapper(Rect* rect)
 {
     Rect rectToUpdate;
-    if (rectIntersection(rect, &gIsoWindowRect, &rectToUpdate) == -1) {
+    if (rectIntersection(rect, &gWorldRect, &rectToUpdate) == -1) {
         return;
     }
 
@@ -1992,10 +2037,10 @@ static void isoWindowRefreshRectMapper(Rect* rect)
     bool hasVisArea = mapEdgeComputeVisibleArea(gElevation, &visArea);
 
     // HRP rect_inside_bound_scroll_clip: always clear srcRect, then clip to mapVisibleArea.
-    bufferFill(gIsoWindowBuffer + rectToUpdate.top * rectGetWidth(&gIsoWindowRect) + rectToUpdate.left,
+    bufferFill(gIsoWindowBuffer + rectToUpdate.top * rectGetWidth(&gWorldRect) + rectToUpdate.left,
         rectGetWidth(&rectToUpdate),
         rectGetHeight(&rectToUpdate),
-        rectGetWidth(&gIsoWindowRect),
+        rectGetWidth(&gWorldRect),
         COLOR_FIRST);
 
     if (hasVisArea && rectIntersection(&rectToUpdate, &visArea, &rectToUpdate) == -1) {
@@ -2009,7 +2054,7 @@ static void isoWindowRefreshRectMapper(Rect* rect)
     _obj_render_post_roof(&rectToUpdate, gElevation);
 
     if (!hasVisArea) {
-        tile_hires_stencil_draw(&rectToUpdate, gIsoWindowBuffer, rectGetWidth(&gIsoWindowRect), rectGetHeight(&gIsoWindowRect));
+        tile_hires_stencil_draw(&rectToUpdate, gIsoWindowBuffer, rectGetWidth(&gWorldRect), rectGetHeight(&gWorldRect));
     }
 
     tileMapperOverlayRender(gIsoWindowBuffer, rectGetWidth(&gIsoWindowRect), gElevation, &rectToUpdate);

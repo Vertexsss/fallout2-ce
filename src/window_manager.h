@@ -55,6 +55,8 @@ typedef enum WindowFlags {
     // Specifies that the window is draggable by clicking and moving anywhere in its background.
     WINDOW_DRAGGABLE_BY_BACKGROUND = 0x80,
     WINDOW_MANAGED = 0x100,
+    // May extend past the screen edges (the zoom-out iso world window).
+    WINDOW_OVERSIZED = 0x200,
 } WindowFlags;
 
 typedef enum ButtonFlags {

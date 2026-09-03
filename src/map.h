@@ -106,6 +106,8 @@ int mapScroll(int dx, int dy, bool fastPaced = false);
 // the center tile, the remainder becomes the viewport pixel bias. Returns -1
 // when blocked by map edges or scroll restrictions.
 int mapScrollPixels(int dxPixels, int dyPixels);
+void mapGetIsoMargins(int* marginX, int* marginY);
+void isoScreenToWorld(int* x, int* y);
 int mapSetEnteringLocation(int elevation, int tile, Rotation rotation);
 void mapNewMap();
 int mapLoadByName(char* fileName);

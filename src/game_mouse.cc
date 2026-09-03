@@ -1807,6 +1807,7 @@ Object* gameMouseGetObjectUnderCursor(ObjectType objectType, bool includeDude, i
     int mouseX;
     int mouseY;
     mouseGetPosition(&mouseX, &mouseY);
+    isoScreenToWorld(&mouseX, &mouseY);
 
     bool intersectsRoof = false;
     if (objectType == -1) {
@@ -2561,6 +2562,9 @@ int gameMouseUpdateHexCursorFid(Rect* rect)
 // 0x44DF94 gmouse_3d_move_to
 int _gmouse_3d_move_to(int x, int y, int elevation, Rect* rect)
 {
+    // The world lives in the oversized iso window; mouse input is screen.
+    isoScreenToWorld(&x, &y);
+
     if (_gmouse_mapper_mode == 0) {
         if (gGameMouseMode != GAME_MOUSE_MODE_MOVE) {
             int offsetX = 0;

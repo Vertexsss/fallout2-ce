@@ -70,6 +70,11 @@ void renderPresent();
 // the exposed strips. Returns false when the classic full refresh must run
 // (mode off, ring not filled yet, second shift within one frame).
 bool renderIsoPanShift(int screenDx, int screenDy);
+double renderIsoGetZoom();
+void renderIsoSetZoom(double zoom);
+void renderIsoZoomCrop(int* cropX, int* cropY, int* cropW, int* cropH);
+void renderIsoScreenToWorld(int* x, int* y);
+void renderMarkWorldDirty(const Rect* rect);
 // While suppressed, dirty marks are dropped: the GPU pan composites the
 // whole iso window into the surface (cheap, 8-bit) but uploads only the
 // exposed strips it marks explicitly afterwards.

@@ -3068,6 +3068,7 @@ int _check_move(int* actionPointsPtr)
     int x;
     int y;
     mouseGetPosition(&x, &y);
+    isoScreenToWorld(&x, &y);
 
     int tile = tileFromScreenXY(x, y);
     if (tile == -1) {

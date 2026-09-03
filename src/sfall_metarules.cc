@@ -19,6 +19,7 @@
 #include "game_dialog.h"
 #include "game_mouse.h"
 #include "interface.h"
+#include "map.h"
 #include "interpreter.h"
 #include "inventory.h"
 #include "item.h"
@@ -2127,6 +2128,7 @@ void mf_tile_by_position(OpcodeContext& ctx)
 {
     int x = ctx.arg(0).asInt();
     int y = ctx.arg(1).asInt();
+    isoScreenToWorld(&x, &y);
     ctx.setReturn(tileFromScreenXY(x, y));
 }
 

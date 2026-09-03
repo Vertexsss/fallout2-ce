@@ -741,11 +741,20 @@ bool tileFreeScrollClampDelta(int* dxPixels, int* dyPixels)
     if (right > reachRight) right = reachRight;
     if (bottom > reachBottom) bottom = reachBottom;
 
-    // Allowed delta so the content keeps covering the window: after a
-    // scroll by d every screen coordinate shifts by -d, so the left edge
-    // needs d >= left and the right edge needs d <= right - width.
-    tileFreeScrollClampAxis(dxPixels, left, right - gTileWindowWidth);
-    tileFreeScrollClampAxis(dyPixels, top, bottom - gTileWindowHeight);
+    // The visible view is the current zoom crop of the oversized world
+    // window; content only needs to cover the crop.
+    int viewOriginX;
+    int viewOriginY;
+    int viewW;
+    int viewH;
+    renderIsoZoomCrop(&viewOriginX, &viewOriginY, &viewW, &viewH);
+
+    // Allowed delta so the content keeps covering the view: after a scroll
+    // by d every world coordinate shifts by -d, so the view's left edge
+    // needs d >= left - viewOrigin and its right edge needs
+    // d <= right - viewOrigin - viewW.
+    tileFreeScrollClampAxis(dxPixels, left - viewOriginX, right - viewOriginX - viewW);
+    tileFreeScrollClampAxis(dyPixels, top - viewOriginY, bottom - viewOriginY - viewH);
 
     // Diagonal clamp: map edges run at slope +-12/48, so the view corners
     // must also stay inside the content's (p, q) = (x + 4y, x - 4y) range.
@@ -758,10 +767,12 @@ bool tileFreeScrollClampDelta(int* dxPixels, int* dyPixels)
     int dq = *dxPixels - 4 * *dyPixels;
     int dpOld = dp;
     int dqOld = dq;
-    tileFreeScrollClampAxis(&dp, originP + gContentRelPMin,
-        originP + gContentRelPMax - (gTileWindowWidth + 4 * gTileWindowHeight));
-    tileFreeScrollClampAxis(&dq, originQ + gContentRelQMin + 4 * gTileWindowHeight,
-        originQ + gContentRelQMax - gTileWindowWidth);
+    int viewP0 = viewOriginX + 4 * viewOriginY;
+    int viewQ0 = viewOriginX - 4 * viewOriginY;
+    tileFreeScrollClampAxis(&dp, originP + gContentRelPMin - viewP0,
+        originP + gContentRelPMax - viewP0 - (viewW + 4 * viewH));
+    tileFreeScrollClampAxis(&dq, originQ + gContentRelQMin - viewQ0 + 4 * viewH,
+        originQ + gContentRelQMax - viewQ0 - viewW);
     if (dp != dpOld || dq != dqOld) {
         *dxPixels = (dp + dq) / 2;
         *dyPixels = (dp - dq) / 8;

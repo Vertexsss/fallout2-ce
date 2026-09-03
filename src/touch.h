@@ -33,6 +33,8 @@ void touch_handle_end(SDL_TouchFingerEvent* event);
 void touch_process_gesture();
 // Fingers currently on the glass (not yet lifted).
 int touch_active_finger_count();
+// Distance in pixels between the two active fingers (0 if fewer than two).
+int touch_active_finger_spread();
 // Drops all finger state and queued gestures (app activation changes).
 void touch_reset();
 bool touch_get_gesture(Gesture* gesture);

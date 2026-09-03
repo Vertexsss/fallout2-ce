@@ -73,6 +73,7 @@ bool renderIsoPanShift(int screenDx, int screenDy);
 double renderIsoGetZoom();
 void renderIsoSetZoom(double zoom);
 void renderIsoZoomCrop(int* cropX, int* cropY, int* cropW, int* cropH);
+bool renderIsoClipWorldRectToView(Rect* rect);
 void renderIsoScreenToWorld(int* x, int* y);
 void renderMarkWorldDirty(const Rect* rect);
 // While suppressed, dirty marks are dropped: the GPU pan composites the

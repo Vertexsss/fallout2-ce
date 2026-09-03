@@ -709,6 +709,11 @@ static void isoWindowShiftPixels(int screenDx, int screenDy)
 {
     Rect r1;
     rectCopy(&r1, &gWorldRect);
+    // At 1x the exposed strips repaint at the edge of the visible crop,
+    // not the world edge - the stale margin band that the blit shifts
+    // into view is exactly the strip this produces. At a wide zoom the
+    // crop is the world and this is a no-op.
+    renderIsoClipWorldRectToView(&r1);
 
     Rect r2;
     rectCopy(&r2, &r1);
@@ -778,21 +783,14 @@ static void isoWindowShiftPixels(int screenDx, int screenDy)
         windowRefresh(gIsoWindow);
         renderSetMarkSuppressed(false);
 
+        // The strips reach the ring through the world-space list above;
+        // the classic texture serves only the UI and the cursor's
+        // neighborhood here. Putting the strips into the SCREEN list too
+        // fed the slack-merge a full-height edge band every tick, and the
+        // union with the interface bar, the dude pointer and the toolbar
+        // fused into a full-screen rect - which triggers the full-ring
+        // validation upload on every pan frame.
         SDL_Rect mark;
-        if (screenDx != 0) {
-            mark.x = r2.left - gIsoMarginX;
-            mark.y = r2.top - gIsoMarginY;
-            mark.w = r2.right - r2.left + 1;
-            mark.h = r2.bottom - r2.top + 1;
-            renderMarkDirtyAmbient(&mark);
-        }
-        if (screenDy != 0) {
-            mark.x = r1.left - gIsoMarginX;
-            mark.y = r1.top - gIsoMarginY;
-            mark.w = r1.right - r1.left + 1;
-            mark.h = r1.bottom - r1.top + 1;
-            renderMarkDirtyAmbient(&mark);
-        }
 
         // The cursor's image is baked into the ring with the world and
         // would otherwise trail behind (the previous bake now maps one
@@ -967,6 +965,11 @@ int mapScroll(int dx, int dy, bool fastPaced)
 
     Rect r1;
     rectCopy(&r1, &gWorldRect);
+    // At 1x the exposed strips repaint at the edge of the visible crop,
+    // not the world edge - the stale margin band that the blit shifts
+    // into view is exactly the strip this produces. At a wide zoom the
+    // crop is the world and this is a no-op.
+    renderIsoClipWorldRectToView(&r1);
 
     Rect r2;
     rectCopy(&r2, &r1);
@@ -1041,21 +1044,14 @@ int mapScroll(int dx, int dy, bool fastPaced)
         windowRefresh(gIsoWindow);
         renderSetMarkSuppressed(false);
 
+        // The strips reach the ring through the world-space list above;
+        // the classic texture serves only the UI and the cursor's
+        // neighborhood here. Putting the strips into the SCREEN list too
+        // fed the slack-merge a full-height edge band every tick, and the
+        // union with the interface bar, the dude pointer and the toolbar
+        // fused into a full-screen rect - which triggers the full-ring
+        // validation upload on every pan frame.
         SDL_Rect mark;
-        if (screenDx != 0) {
-            mark.x = r2.left - gIsoMarginX;
-            mark.y = r2.top - gIsoMarginY;
-            mark.w = r2.right - r2.left + 1;
-            mark.h = r2.bottom - r2.top + 1;
-            renderMarkDirtyAmbient(&mark);
-        }
-        if (screenDy != 0) {
-            mark.x = r1.left - gIsoMarginX;
-            mark.y = r1.top - gIsoMarginY;
-            mark.w = r1.right - r1.left + 1;
-            mark.h = r1.bottom - r1.top + 1;
-            renderMarkDirtyAmbient(&mark);
-        }
 
         // The classic texture is sampled at the cursor rect every frame;
         // the world beneath the parked cursor changes with each shift, so
@@ -1987,10 +1983,17 @@ static void mapMakeMapsDirectory()
 // 0x483ED0
 static void isoWindowRefreshRect(Rect* rect)
 {
-    // The rect is world-space; the ring needs it even when the visible
-    // (screen-clipped) part is empty - margin renders must not go stale.
-    renderMarkWorldDirty(rect);
-    windowRefreshRect(gIsoWindow, rect);
+    // The rect is world-space. At 1x clip it to the visible crop - the
+    // margins are deliberately stale and are validated in one pass when
+    // the zoom leaves 1x; at a wide zoom the ring needs the full rect
+    // even when the screen-clipped part is empty.
+    Rect clipped;
+    rectCopy(&clipped, rect);
+    if (!renderIsoClipWorldRectToView(&clipped)) {
+        return;
+    }
+    renderMarkWorldDirty(&clipped);
+    windowRefreshRect(gIsoWindow, &clipped);
 }
 
 // 0x483EE4 map_scroll_refresh_game

@@ -188,9 +188,24 @@ static void paletteRebuildPresence()
     const int cellW = (scanW + gCycleGridCols - 1) / gCycleGridCols;
     const int cellH = (scanH + gCycleGridRows - 1) / gCycleGridRows;
 
-    const unsigned char* row = pixels;
-    for (int y = 0; y < scanH; y++) {
-        for (int x = 0; x < scanW; x++) {
+    // At 1x only the visible crop matters: colors and cycle fires in the
+    // stale margins are invisible, and leaving 1x forces a full rescan.
+    int scanX0 = 0;
+    int scanY0 = 0;
+    int scanX1 = scanW;
+    int scanY1 = scanH;
+    if (gCycleCellsWorldSpace) {
+        Rect view = { 0, 0, scanW - 1, scanH - 1 };
+        if (renderIsoClipWorldRectToView(&view)) {
+            scanX0 = view.left;
+            scanY0 = view.top;
+            scanX1 = view.right + 1;
+            scanY1 = view.bottom + 1;
+        }
+    }
+    const unsigned char* row = pixels + static_cast<size_t>(scanY0) * scanPitch;
+    for (int y = scanY0; y < scanY1; y++) {
+        for (int x = scanX0; x < scanX1; x++) {
             unsigned char index = row[x];
             gPaletteIndexPresent[index] = true;
             if (index >= kCycleRangeStart) {
@@ -463,7 +478,14 @@ void directDrawSetPaletteInRange(unsigned char* palette, int start, int count)
         // those pixels are, restrict the re-conversion to their bounding box.
         if (visibleChange) {
             const bool cycleOnly = start >= kCycleRangeStart && start + count <= 256;
-            if (cycleOnly && gCycleCellsEverBuilt && gCycleAnyPresent) {
+            if (cycleOnly && gCycleCellsEverBuilt && !gCycleAnyPresent) {
+                // The last cell scan saw NO cycling pixels in the view:
+                // there is nothing to animate - mark nothing. Falling to
+                // the conservative full-screen mark here made every pan
+                // frame a full upload whenever the view held no water or
+                // fires (a cycling pixel scrolled in mid-pan just waits
+                // for the next <=250ms rescan, same as any stale cell).
+            } else if (cycleOnly && gCycleCellsEverBuilt && gCycleAnyPresent) {
                 int cellMarginX = 0;
                 int cellMarginY = 0;
                 if (gCycleCellsWorldSpace) {
@@ -772,6 +794,11 @@ static SDL_Texture* gIsoRingTexture = nullptr;
 static SDL_Texture* gCursorArtTexture = nullptr;
 static int gCursorArtTextureW = 0;
 static int gCursorArtTextureH = 0;
+// Keyed RGBA scratch for TRANSPARENT windows above the iso view in the
+// zoomed compose (the classic texture holds 1x world behind their holes).
+static SDL_Texture* gOverlayArtTexture = nullptr;
+static int gOverlayArtTextureW = 0;
+static int gOverlayArtTextureH = 0;
 static int gIsoRingW = 0;
 static int gIsoRingH = 0;
 static int gIsoRingOx = 0;
@@ -849,6 +876,10 @@ static bool isoRingEnsure(int width, int height)
 
 static void isoRingDestroy()
 {
+    if (gOverlayArtTexture != nullptr) {
+        SDL_DestroyTexture(gOverlayArtTexture);
+        gOverlayArtTexture = nullptr;
+    }
     if (gCursorArtTexture != nullptr) {
         SDL_DestroyTexture(gCursorArtTexture);
         gCursorArtTexture = nullptr;
@@ -1090,10 +1121,45 @@ void renderIsoSetZoom(double zoom)
         zoom = 1.5;
     }
     if (zoom != gIsoZoom) {
+        bool wasFlat = gIsoZoom <= 1.0001;
         gIsoZoom = zoom;
         gIsoZoomDirty = true;
         sharedFpsLimiter.notifyActivity();
+
+        if (wasFlat && zoom > 1.0001) {
+            // At 1x every iso refresh is clipped to the visible crop and
+            // the margins hold stale pixels - repaint and re-mark the
+            // whole world once on the way out of 1x (the clip is off now
+            // that the zoom is wide).
+            tileWindowRefresh();
+            gPalettePresenceValid = false;
+        }
     }
+}
+
+// At exactly 1x the margins of the oversized world window are invisible
+// and deliberately stale (renderIsoSetZoom validates them on the way out
+// of 1x). Clip world-space refresh work to the visible crop; returns
+// false when the rect lies fully outside the view.
+bool renderIsoClipWorldRectToView(Rect* rect)
+{
+    if (gIsoZoom > 1.0001) {
+        return true;
+    }
+    int cropX;
+    int cropY;
+    int cropW;
+    int cropH;
+    renderIsoZoomCrop(&cropX, &cropY, &cropW, &cropH);
+    if (cropW <= 0 || cropH <= 0) {
+        return true;
+    }
+    Rect view;
+    view.left = cropX;
+    view.top = cropY;
+    view.right = cropX + cropW - 1;
+    view.bottom = cropY + cropH - 1;
+    return rectIntersection(rect, &view, rect) == 0;
 }
 
 // The visible crop of the oversized world window, in world (window-local)
@@ -1262,7 +1328,12 @@ void renderMarkDirtyAmbient(const SDL_Rect* rect)
             world.right = rect->x + rect->w - 1 + marginX;
             world.bottom = rect->y + rect->h - 1 + marginY;
         }
-        renderMarkWorldDirty(&world);
+        // At 1x the part of the mirror beyond the crop lies in the
+        // deliberately stale margins - marking it would upload stale
+        // pixels for nothing.
+        if (renderIsoClipWorldRectToView(&world)) {
+            renderMarkWorldDirty(&world);
+        }
     }
 
     SDL_Rect clipped;
@@ -1453,18 +1524,78 @@ void renderPresent()
             isoRingCompose(gSdlTextureSurface->w, gSdlTextureSurface->h, composeMarginX, composeMarginY);
         }
 
-        // Everything above the iso window comes from the classic texture -
-        // its pixels for exactly these rects are always freshly uploaded.
-        for (int i = 0; i < aboveRectCount; i++) {
-            SDL_Rect wr;
-            wr.x = aboveRects[i].left;
-            wr.y = aboveRects[i].top;
-            wr.w = aboveRects[i].right - aboveRects[i].left + 1;
-            wr.h = aboveRects[i].bottom - aboveRects[i].top + 1;
+        // Everything above the iso window draws in stack order. Opaque
+        // windows come from the classic texture (their flattened pixels
+        // are their own content). TRANSPARENT windows (the dude pointer,
+        // the quick toolbar padding) must NOT: the classic surface holds
+        // the 1x-scale world behind their transparent pixels, which does
+        // not match the zoomed world underneath - draw their own buffer
+        // with colorkey alpha instead.
+        if (zoomed) {
+            int aboveIds[kMaxAboveRects];
+            int aboveIdCount = windowGetWindowsAbove(gIsoWindow, aboveIds, kMaxAboveRects);
             SDL_Rect full = { 0, 0, gSdlTextureSurface->w, gSdlTextureSurface->h };
-            SDL_Rect clipped;
-            if (SDL_IntersectRect(&wr, &full, &clipped) == SDL_TRUE) {
-                SDL_RenderCopy(gSdlRenderer, gSdlTexture, &clipped, &clipped);
+            for (int i = 0; i < aboveIdCount; i++) {
+                Window* above = windowGetWindow(aboveIds[i]);
+                if (above == nullptr || above->buffer == nullptr) {
+                    continue;
+                }
+                SDL_Rect wr = { above->rect.left, above->rect.top, above->width, above->height };
+                SDL_Rect clipped;
+                if (SDL_IntersectRect(&wr, &full, &clipped) != SDL_TRUE) {
+                    continue;
+                }
+                if ((above->flags & WINDOW_TRANSPARENT) == 0) {
+                    SDL_RenderCopy(gSdlRenderer, gSdlTexture, &clipped, &clipped);
+                    continue;
+                }
+                if (gOverlayArtTexture != nullptr
+                    && (gOverlayArtTextureW < above->width || gOverlayArtTextureH < above->height)) {
+                    SDL_DestroyTexture(gOverlayArtTexture);
+                    gOverlayArtTexture = nullptr;
+                }
+                if (gOverlayArtTexture == nullptr) {
+                    gOverlayArtTextureW = above->width > 512 ? above->width : 512;
+                    gOverlayArtTextureH = above->height > 128 ? above->height : 128;
+                    gOverlayArtTexture = SDL_CreateTexture(gSdlRenderer, SDL_PIXELFORMAT_ARGB8888,
+                        SDL_TEXTUREACCESS_STREAMING, gOverlayArtTextureW, gOverlayArtTextureH);
+                    if (gOverlayArtTexture != nullptr) {
+                        SDL_SetTextureBlendMode(gOverlayArtTexture, SDL_BLENDMODE_BLEND);
+                    }
+                }
+                if (gOverlayArtTexture == nullptr) {
+                    SDL_RenderCopy(gSdlRenderer, gSdlTexture, &clipped, &clipped);
+                    continue;
+                }
+                static std::vector<Uint32> overlayScratch;
+                overlayScratch.resize(static_cast<size_t>(above->width) * above->height);
+                for (int oy = 0; oy < above->height; oy++) {
+                    const unsigned char* srcRow = above->buffer + static_cast<size_t>(oy) * above->width;
+                    Uint32* dstRow = overlayScratch.data() + static_cast<size_t>(oy) * above->width;
+                    for (int ox = 0; ox < above->width; ox++) {
+                        unsigned char colorIndex = srcRow[ox];
+                        dstRow[ox] = colorIndex == 0 ? 0u : (gIsoRingLut[colorIndex] | 0xFF000000u);
+                    }
+                }
+                SDL_Rect texRect = { 0, 0, above->width, above->height };
+                SDL_UpdateTexture(gOverlayArtTexture, &texRect, overlayScratch.data(), above->width * 4);
+                SDL_Rect srcPart = { clipped.x - wr.x, clipped.y - wr.y, clipped.w, clipped.h };
+                SDL_RenderCopy(gSdlRenderer, gOverlayArtTexture, &srcPart, &clipped);
+            }
+        } else {
+            // At 1x the classic surface pixels equal the composed world -
+            // the flattened rects are correct, transparency included.
+            for (int i = 0; i < aboveRectCount; i++) {
+                SDL_Rect wr;
+                wr.x = aboveRects[i].left;
+                wr.y = aboveRects[i].top;
+                wr.w = aboveRects[i].right - aboveRects[i].left + 1;
+                wr.h = aboveRects[i].bottom - aboveRects[i].top + 1;
+                SDL_Rect full = { 0, 0, gSdlTextureSurface->w, gSdlTextureSurface->h };
+                SDL_Rect clipped;
+                if (SDL_IntersectRect(&wr, &full, &clipped) == SDL_TRUE) {
+                    SDL_RenderCopy(gSdlRenderer, gSdlTexture, &clipped, &clipped);
+                }
             }
         }
 

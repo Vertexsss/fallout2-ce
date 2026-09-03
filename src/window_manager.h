@@ -235,6 +235,7 @@ int windowGetVisibleAtPoint(int x, int y);
 // Screen rects of visible windows strictly above windowId in z-order.
 // Returns the count (clamped to maxCount), or -1 if windowId is unknown.
 int windowGetVisibleRectsAbove(int windowId, Rect* rects, int maxCount);
+int windowGetWindowsAbove(int windowId, int* ids, int maxCount);
 int windowGetWidth(int win);
 int windowGetHeight(int win);
 int windowGetRect(int win, Rect* rect);

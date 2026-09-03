@@ -981,6 +981,13 @@ static void tileRefreshGame(Rect* rect, int elevation)
         return;
     }
 
+    // At 1x the oversized window's margins are invisible and deliberately
+    // stale - skip their repaint entirely (renderIsoSetZoom validates the
+    // world when the zoom leaves 1x).
+    if (!renderIsoClipWorldRectToView(&rectToUpdate)) {
+        return;
+    }
+
     Rect visArea;
     bool hasVisArea = mapEdgeComputeVisibleArea(elevation, &visArea);
 

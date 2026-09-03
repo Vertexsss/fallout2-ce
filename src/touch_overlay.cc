@@ -27,7 +27,8 @@ namespace fallout {
 namespace {
 
 constexpr int kButtonWidth = 44;
-constexpr int kButtonHeight = 26;
+// 30px = ~44pt at UI SCALE 1.5 (Apple HIG minimum tap target).
+constexpr int kButtonHeight = 30;
 constexpr int kMargin = 8;
 
 struct OverlayButton {

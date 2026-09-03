@@ -1239,6 +1239,101 @@ int windowGetAtPoint(int x, int y)
     return -1;
 }
 
+// Touch-target expansion (Apple HIG): a tap that misses every control in
+// a UI window by a few pixels is routed to the nearest small button.
+// Small targets grow to a ~30px (~44pt at UI SCALE 1.5) minimum hit
+// size and never more; large targets and world (iso window) taps stay
+// exact. Adjacent expanded targets resolve by nearest-rect distance, so
+// the midpoint between two buttons still splits them evenly.
+bool touchSnapToNearbyButton(int* x, int* y)
+{
+    constexpr int kMinHitSize = 30;
+    constexpr int kMaxSlop = 12;
+    constexpr int kMaxSnapDim = 100;
+
+    if (!gWindowSystemInitialized) {
+        return false;
+    }
+
+    Window* window = nullptr;
+    for (int index = gWindowsLength - 1; index >= 0; index--) {
+        Window* candidate = gWindows[index];
+        if ((candidate->flags & WINDOW_HIDDEN) != 0) {
+            continue;
+        }
+        if (*x >= candidate->rect.left && *x <= candidate->rect.right
+            && *y >= candidate->rect.top && *y <= candidate->rect.bottom) {
+            window = candidate;
+            break;
+        }
+    }
+    if (window == nullptr) {
+        return false;
+    }
+    if ((window->flags & WINDOW_OVERSIZED) != 0) {
+        // A world click means a hex, not a control.
+        return false;
+    }
+
+    int localX = *x - window->rect.left;
+    int localY = *y - window->rect.top;
+
+    Button* best = nullptr;
+    long bestDist = 0;
+    long bestArea = 0;
+    for (Button* button = window->buttonListHead; button != nullptr; button = button->next) {
+        if ((button->flags & BUTTON_FLAG_DISABLED) != 0) {
+            continue;
+        }
+        if (localX >= button->rect.left && localX <= button->rect.right
+            && localY >= button->rect.top && localY <= button->rect.bottom) {
+            // A direct hit is never stolen.
+            return false;
+        }
+        int w = button->rect.right - button->rect.left + 1;
+        int h = button->rect.bottom - button->rect.top + 1;
+        if (w >= kMaxSnapDim || h >= kMaxSnapDim) {
+            continue;
+        }
+        int ex = std::min((kMinHitSize - w + 1) / 2, kMaxSlop);
+        int ey = std::min((kMinHitSize - h + 1) / 2, kMaxSlop);
+        if (ex < 0) ex = 0;
+        if (ey < 0) ey = 0;
+        if (ex == 0 && ey == 0) {
+            continue;
+        }
+        int dx = 0;
+        if (localX < button->rect.left) {
+            dx = button->rect.left - localX;
+        } else if (localX > button->rect.right) {
+            dx = localX - button->rect.right;
+        }
+        int dy = 0;
+        if (localY < button->rect.top) {
+            dy = button->rect.top - localY;
+        } else if (localY > button->rect.bottom) {
+            dy = localY - button->rect.bottom;
+        }
+        if (dx > ex || dy > ey) {
+            continue;
+        }
+        long dist = static_cast<long>(dx) * dx + static_cast<long>(dy) * dy;
+        long area = static_cast<long>(w) * h;
+        if (best == nullptr || dist < bestDist || (dist == bestDist && area < bestArea)) {
+            best = button;
+            bestDist = dist;
+            bestArea = area;
+        }
+    }
+    if (best == nullptr) {
+        return false;
+    }
+
+    *x = window->rect.left + (best->rect.left + best->rect.right) / 2;
+    *y = window->rect.top + (best->rect.top + best->rect.bottom) / 2;
+    return true;
+}
+
 // 0x4D7918
 int windowGetWidth(int win)
 {

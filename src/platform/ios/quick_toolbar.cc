@@ -28,7 +28,10 @@ namespace {
     constexpr int kToolbarWidth = (kSkillButtonCount + 1) * kButtonWidth;
     // Window is exactly the button row — no outer padding rows, so there are no
     // pixels outside the buttons that could bleed as window background.
-    constexpr int kToolbarHeight = kButtonHeight;
+    // 3px of hit padding above and below brings the tap target to 30px
+    // (~44pt at UI SCALE 1.5, Apple HIG minimum); the painted panel keeps
+    // its 24px look, the padding rows stay colorkey-transparent.
+    constexpr int kToolbarHeight = kButtonHeight + 6;
 
     struct SkillEntry {
         SkilldexRC skilldexRc;

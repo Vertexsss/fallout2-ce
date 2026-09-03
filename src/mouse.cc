@@ -678,6 +678,10 @@ void _mouse_info()
                 }
             }
 
+            // Touch-target expansion: a near-miss tap lands on the nearest
+            // small button. World taps and direct hits stay exact.
+            touchSnapToNearbyButton(&gesture.x, &gesture.y);
+
 
 #if __APPLE__ && TARGET_OS_IOS
             if (handleHudTapThrough(gesture)) {
@@ -786,6 +790,16 @@ void _mouse_info()
                 if (gesture.numberOfTouches == 1) {
                     if (gesture.state == kBegan) {
                         gBackdateLeftPress = true;
+                        if (mouseDeviceUsesRelativeMode() && touch_get_touchscreen_mode()) {
+                            // A hold a few px off a small button anchors ON
+                            // the button, so the press and its repeats hit
+                            // it; further finger movement drags from there.
+                            int snapX = gesture.x;
+                            int snapY = gesture.y;
+                            if (touchSnapToNearbyButton(&snapX, &snapY)) {
+                                _mouse_set_position(snapX, snapY);
+                            }
+                        }
                     }
                     _mouse_simulate_input(gesture.x - prevx, gesture.y - prevy, MOUSE_STATE_LEFT_BUTTON_DOWN);
                 } else if (gesture.numberOfTouches == 2) {

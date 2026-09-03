@@ -372,6 +372,30 @@ static void textObjectsTicker()
 
 // Finds best position for placing text object.
 //
+// The candidate position must sit inside the VISIBLE view (the zoom
+// crop), not the oversized world window - vanilla shifted floaters away
+// from the screen edge, and the world margins are off-view at 1x.
+static bool textObjectPlacementVisible(TextObject* textObject)
+{
+    int viewLeft = 0;
+    int viewTop = 0;
+    int viewRightEnd = gTextObjectsWindowWidth;
+    int viewBottomEnd = gTextObjectsWindowHeight;
+    int cropX;
+    int cropY;
+    int cropW;
+    int cropH;
+    renderIsoZoomCrop(&cropX, &cropY, &cropW, &cropH);
+    if (cropW > 0 && cropH > 0) {
+        viewLeft = cropX;
+        viewTop = cropY;
+        viewRightEnd = cropX + cropW;
+        viewBottomEnd = cropY + cropH;
+    }
+    return textObject->x >= viewLeft && textObject->x + textObject->width - 1 < viewRightEnd
+        && textObject->y >= viewTop && textObject->y + textObject->height - 1 < viewBottomEnd;
+}
+
 // 0x4B0954 text_object_get_offset
 static void textObjectFindPlacement(TextObject* textObject)
 {
@@ -385,24 +409,21 @@ static void textObjectFindPlacement(TextObject* textObject)
         textObject->y -= textObject->height + 60;
     }
 
-    if ((textObject->x >= 0 && textObject->x + textObject->width - 1 < gTextObjectsWindowWidth)
-        && (textObject->y >= 0 && textObject->y + textObject->height - 1 < gTextObjectsWindowHeight)) {
+    if (textObjectPlacementVisible(textObject)) {
         textObject->sx = textObject->x - tileScreenX;
         textObject->sy = textObject->y - tileScreenY;
         return;
     }
 
     textObject->x -= textObject->width / 2;
-    if ((textObject->x >= 0 && textObject->x + textObject->width - 1 < gTextObjectsWindowWidth)
-        && (textObject->y >= 0 && textObject->y + textObject->height - 1 < gTextObjectsWindowHeight)) {
+    if (textObjectPlacementVisible(textObject)) {
         textObject->sx = textObject->x - tileScreenX;
         textObject->sy = textObject->y - tileScreenY;
         return;
     }
 
     textObject->x += textObject->width;
-    if ((textObject->x >= 0 && textObject->x + textObject->width - 1 < gTextObjectsWindowWidth)
-        && (textObject->y >= 0 && textObject->y + textObject->height - 1 < gTextObjectsWindowHeight)) {
+    if (textObjectPlacementVisible(textObject)) {
         textObject->sx = textObject->x - tileScreenX;
         textObject->sy = textObject->y - tileScreenY;
         return;
@@ -410,16 +431,14 @@ static void textObjectFindPlacement(TextObject* textObject)
 
     textObject->x = tileScreenX - 16 - textObject->width;
     textObject->y = tileScreenY - 16 - textObject->height;
-    if ((textObject->x >= 0 && textObject->x + textObject->width - 1 < gTextObjectsWindowWidth)
-        && (textObject->y >= 0 && textObject->y + textObject->height - 1 < gTextObjectsWindowHeight)) {
+    if (textObjectPlacementVisible(textObject)) {
         textObject->sx = textObject->x - tileScreenX;
         textObject->sy = textObject->y - tileScreenY;
         return;
     }
 
     textObject->x += textObject->width + 64;
-    if ((textObject->x >= 0 && textObject->x + textObject->width - 1 < gTextObjectsWindowWidth)
-        && (textObject->y >= 0 && textObject->y + textObject->height - 1 < gTextObjectsWindowHeight)) {
+    if (textObjectPlacementVisible(textObject)) {
         textObject->sx = textObject->x - tileScreenX;
         textObject->sy = textObject->y - tileScreenY;
         return;
@@ -427,24 +446,21 @@ static void textObjectFindPlacement(TextObject* textObject)
 
     textObject->x = tileScreenX + 16 - textObject->width / 2;
     textObject->y = tileScreenY;
-    if ((textObject->x >= 0 && textObject->x + textObject->width - 1 < gTextObjectsWindowWidth)
-        && (textObject->y >= 0 && textObject->y + textObject->height - 1 < gTextObjectsWindowHeight)) {
+    if (textObjectPlacementVisible(textObject)) {
         textObject->sx = textObject->x - tileScreenX;
         textObject->sy = textObject->y - tileScreenY;
         return;
     }
 
     textObject->x -= textObject->width / 2;
-    if ((textObject->x >= 0 && textObject->x + textObject->width - 1 < gTextObjectsWindowWidth)
-        && (textObject->y >= 0 && textObject->y + textObject->height - 1 < gTextObjectsWindowHeight)) {
+    if (textObjectPlacementVisible(textObject)) {
         textObject->sx = textObject->x - tileScreenX;
         textObject->sy = textObject->y - tileScreenY;
         return;
     }
 
     textObject->x += textObject->width;
-    if ((textObject->x >= 0 && textObject->x + textObject->width - 1 < gTextObjectsWindowWidth)
-        && (textObject->y >= 0 && textObject->y + textObject->height - 1 < gTextObjectsWindowHeight)) {
+    if (textObjectPlacementVisible(textObject)) {
         textObject->sx = textObject->x - tileScreenX;
         textObject->sy = textObject->y - tileScreenY;
         return;

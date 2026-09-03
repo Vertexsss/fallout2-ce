@@ -63,6 +63,17 @@ static int pixelToTile(int px, int py)
 
 static Size getIsoWindowSize()
 {
+    // The EDG math (half-window margins, boundary alignment mods, visible
+    // area) is defined for the VIEWPORT the player sees - the zoom crop,
+    // not the oversized world window.
+    int cropX;
+    int cropY;
+    int cropW;
+    int cropH;
+    renderIsoZoomCrop(&cropX, &cropY, &cropW, &cropH);
+    if (cropW > 0 && cropH > 0) {
+        return { cropW, cropH };
+    }
     Rect winRect;
     int rc = windowGetRect(gIsoWindow, &winRect);
     assert(rc != -1);
@@ -553,6 +564,20 @@ bool mapEdgeComputeVisibleArea(int elevation, Rect* outRect)
     outRect->top = zone->pixelRect.top - screenOriginY;
     outRect->bottom = zone->pixelRect.bottom - screenOriginY;
 
+    // The rect above is in VIEW (crop) coordinates; its consumers clip
+    // world-space render rects - translate into world space.
+    {
+        int cropX;
+        int cropY;
+        int cropW;
+        int cropH;
+        renderIsoZoomCrop(&cropX, &cropY, &cropW, &cropH);
+        outRect->left += cropX;
+        outRect->right += cropX;
+        outRect->top += cropY;
+        outRect->bottom += cropY;
+    }
+
     gMapVisibleArea = *outRect;
 
     return true;
@@ -562,7 +587,12 @@ bool mapEdgeIsOverClippedArea(int screenX, int screenY)
 {
     if (!mapEdgeIsEnabled()) return false;
 
-    if (screenX >= gMapVisibleArea.left && screenX <= gMapVisibleArea.right && screenY >= gMapVisibleArea.top && screenY < gMapVisibleArea.bottom) return false;
+    // gMapVisibleArea is world space now; the cursor is screen space.
+    int worldX = screenX;
+    int worldY = screenY;
+    isoScreenToWorld(&worldX, &worldY);
+
+    if (worldX >= gMapVisibleArea.left && worldX <= gMapVisibleArea.right && worldY >= gMapVisibleArea.top && worldY < gMapVisibleArea.bottom) return false;
 
     return windowGetAtPoint(screenX, screenY) == gIsoWindow;
 }

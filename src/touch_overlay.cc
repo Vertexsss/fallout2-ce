@@ -233,6 +233,21 @@ void pointerTick()
     int viewW = screenGetWidth();
     int viewH = screenGetVisibleHeight();
 
+    // tileToScreenXY is world (oversized window) space now - convert to
+    // screen through the zoom crop, or the pointer thinks an on-screen
+    // dude is off-screen.
+    {
+        int cropX;
+        int cropY;
+        int cropW;
+        int cropH;
+        renderIsoZoomCrop(&cropX, &cropY, &cropW, &cropH);
+        if (cropW > 0 && cropH > 0) {
+            dudeX = static_cast<int>((dudeX - cropX) * static_cast<double>(viewW) / cropW);
+            dudeY = static_cast<int>((dudeY - cropY) * static_cast<double>(viewH) / cropH);
+        }
+    }
+
     if (dudeX >= 0 && dudeX < viewW && dudeY >= 0 && dudeY < viewH) {
         pointerHide();
         return;

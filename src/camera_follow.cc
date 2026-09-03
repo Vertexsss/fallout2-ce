@@ -37,6 +37,22 @@ void dudeOffsetFromCenter(int* dx, int* dy)
     int x;
     int y;
     tileToScreenXY(gDude->tile, &x, &y);
+    // tileToScreenXY is world (oversized window) space - compare against
+    // the visible crop, not the raw screen, or the follow constantly sees
+    // the dude a margin off-center.
+    {
+        int cropX;
+        int cropY;
+        int cropW;
+        int cropH;
+        renderIsoZoomCrop(&cropX, &cropY, &cropW, &cropH);
+        int viewW = screenGetWidth();
+        int viewH = screenGetVisibleHeight();
+        if (cropW > 0 && cropH > 0) {
+            x = static_cast<int>((x - cropX) * static_cast<double>(viewW) / cropW);
+            y = static_cast<int>((y - cropY) * static_cast<double>(viewH) / cropH);
+        }
+    }
     // Tile art origin -> hex center.
     x += 16;
     y += 8;

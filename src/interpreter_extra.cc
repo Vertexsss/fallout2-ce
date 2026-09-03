@@ -4780,8 +4780,22 @@ static void opGetCombatDifficulty(Program* program)
 // 0x45C878 op_obj_on_screen
 static void opObjectOnScreen(Program* program)
 {
+    // Object rects are world (iso window local) space; test against the
+    // actual visible crop instead of the vanilla hardcoded 640x480.
     Rect rect;
-    rectCopy(&rect, &stru_453FC0);
+    int cropX;
+    int cropY;
+    int cropW;
+    int cropH;
+    renderIsoZoomCrop(&cropX, &cropY, &cropW, &cropH);
+    if (cropW > 0 && cropH > 0) {
+        rect.left = cropX;
+        rect.top = cropY;
+        rect.right = cropX + cropW - 1;
+        rect.bottom = cropY + cropH - 1;
+    } else {
+        rectCopy(&rect, &stru_453FC0);
+    }
 
     Object* object = static_cast<Object*>(programStackPopPointer(program));
 

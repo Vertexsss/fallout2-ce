@@ -766,6 +766,12 @@ void renderFpsCounter()
 // (and the software cursor) from the classic full-screen texture, whose
 // pixels for exactly those rects are always current.
 static SDL_Texture* gIsoRingTexture = nullptr;
+// Keyed RGBA copy of the cursor art for the zoomed compose - pasting the
+// cursor from the classic texture carried a rectangle of 1x-scale world
+// around the arrow and displaced it toward the center.
+static SDL_Texture* gCursorArtTexture = nullptr;
+static int gCursorArtTextureW = 0;
+static int gCursorArtTextureH = 0;
 static int gIsoRingW = 0;
 static int gIsoRingH = 0;
 static int gIsoRingOx = 0;
@@ -843,6 +849,10 @@ static bool isoRingEnsure(int width, int height)
 
 static void isoRingDestroy()
 {
+    if (gCursorArtTexture != nullptr) {
+        SDL_DestroyTexture(gCursorArtTexture);
+        gCursorArtTexture = nullptr;
+    }
     if (gIsoRingTexture != nullptr) {
         SDL_DestroyTexture(gIsoRingTexture);
         gIsoRingTexture = nullptr;
@@ -1472,33 +1482,41 @@ void renderPresent()
             SDL_Rect clipped;
             if (SDL_IntersectRect(&cr, &full, &clipped) == SDL_TRUE) {
                 if (zoomed) {
-                    // The classic surface holds the 1x center crop; the
-                    // cursor's screen rect maps into the zoom crop at
-                    // +margin, then scales down with the world.
-                    int marginX;
-                    int marginY;
-                    mapGetIsoMargins(&marginX, &marginY);
-                    int cropX;
-                    int cropY;
-                    int cropW;
-                    int cropH;
-                    renderIsoZoomCrop(&cropX, &cropY, &cropW, &cropH);
-                    double zscaleX = static_cast<double>(gIsoRingW - 2 * marginX) / cropW;
-                    double zscaleY = static_cast<double>(gIsoRingH - 2 * marginY) / cropH;
-                    SDL_FRect dst;
-                    dst.x = static_cast<float>((clipped.x + marginX - cropX) * zscaleX);
-                    dst.y = static_cast<float>((clipped.y + marginY - cropY) * zscaleY);
-                    dst.w = static_cast<float>(clipped.w * zscaleX);
-                    dst.h = static_cast<float>(clipped.h * zscaleY);
-                    SDL_SetTextureScaleMode(gSdlTexture, SDL_ScaleModeLinear);
-                    SDL_RenderCopyF(gSdlRenderer, gSdlTexture, &clipped, &dst);
-                    SDL_SetTextureScaleMode(gSdlTexture, SDL_ScaleModeNearest);
-                    for (int a = 0; a < aboveRectCount; a++) {
-                        SDL_Rect wr = { aboveRects[a].left, aboveRects[a].top,
-                            aboveRects[a].right - aboveRects[a].left + 1, aboveRects[a].bottom - aboveRects[a].top + 1 };
-                        SDL_Rect uiPart;
-                        if (SDL_IntersectRect(&clipped, &wr, &uiPart) == SDL_TRUE) {
-                            SDL_RenderCopy(gSdlRenderer, gSdlTexture, &uiPart, &uiPart);
+                    // The cursor is a SCREEN entity: draw its own art 1:1
+                    // at the finger position with real transparency.
+                    unsigned char* art;
+                    int artW;
+                    int artH;
+                    unsigned char artKey;
+                    mouseGetCursorArt(&art, &artW, &artH, &artKey);
+                    if (art != nullptr && artW > 0 && artH > 0) {
+                        if (gCursorArtTexture != nullptr
+                            && (gCursorArtTextureW != artW || gCursorArtTextureH != artH)) {
+                            SDL_DestroyTexture(gCursorArtTexture);
+                            gCursorArtTexture = nullptr;
+                        }
+                        if (gCursorArtTexture == nullptr) {
+                            gCursorArtTexture = SDL_CreateTexture(gSdlRenderer, SDL_PIXELFORMAT_ARGB8888,
+                                SDL_TEXTUREACCESS_STREAMING, artW, artH);
+                            if (gCursorArtTexture != nullptr) {
+                                SDL_SetTextureBlendMode(gCursorArtTexture, SDL_BLENDMODE_BLEND);
+                                gCursorArtTextureW = artW;
+                                gCursorArtTextureH = artH;
+                            }
+                        }
+                        if (gCursorArtTexture != nullptr) {
+                            static std::vector<Uint32> cursorScratch;
+                            cursorScratch.resize(static_cast<size_t>(artW) * artH);
+                            for (int cyi = 0; cyi < artH; cyi++) {
+                                for (int cxi = 0; cxi < artW; cxi++) {
+                                    unsigned char colorIndex = art[cyi * artW + cxi];
+                                    cursorScratch[static_cast<size_t>(cyi) * artW + cxi] =
+                                        colorIndex == artKey ? 0u : (gIsoRingLut[colorIndex] | 0xFF000000u);
+                                }
+                            }
+                            SDL_UpdateTexture(gCursorArtTexture, nullptr, cursorScratch.data(), artW * 4);
+                            SDL_Rect cursorDst = { cursorRect.left, cursorRect.top, artW, artH };
+                            SDL_RenderCopy(gSdlRenderer, gCursorArtTexture, nullptr, &cursorDst);
                         }
                     }
                 } else {

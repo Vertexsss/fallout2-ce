@@ -59,6 +59,7 @@ void convertMouseWheelToArrowKey(int* keyCodePtr);
 // Ends a list scroll routed from a touch pan (backlog discarded / app
 // activation change).
 void mouseTouchScrollCancel();
+void mouseGetCursorArt(unsigned char** data, int* width, int* height, unsigned char* transparent);
 // Bounded pre-modal settle of the mouse event state; clears what remains.
 void mouseSettleEvents(unsigned int maxMs);
 // True while a touch tap's synthetic button hold is in progress (the press

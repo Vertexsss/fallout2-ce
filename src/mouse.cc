@@ -512,6 +512,15 @@ void mouseSettleEvents(unsigned int maxMs)
     _raw_buttons = 0;
 }
 
+// Current cursor frame pixels for GPU-side drawing (zoomed view).
+void mouseGetCursorArt(unsigned char** data, int* width, int* height, unsigned char* transparent)
+{
+    *data = _mouse_shape;
+    *width = gMouseCursorWidth;
+    *height = gMouseCursorHeight;
+    *transparent = static_cast<unsigned char>(_mouse_trans);
+}
+
 void mouseTouchScrollCancel()
 {
     if (gTouchScrollTarget == kTouchScrollTabs) {

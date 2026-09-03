@@ -143,12 +143,40 @@ static int gStatRects = 0;
 static int gStatMaxRectW = 0;
 static int gStatMaxRectH = 0;
 
+// Cycle cells live in WORLD (iso window local) coordinates when the iso
+// world is up: fires just outside the 1x crop must keep animating in the
+// ring or they visibly freeze at the zoom-out boundary. Falls back to the
+// composited surface when the world is not available (menus, movies).
+static bool gCycleCellsWorldSpace = false;
+
 static void paletteRebuildPresence()
 {
     memset(gPaletteIndexPresent, 0, sizeof(gPaletteIndexPresent));
 
-    gCycleGridCols = (gSdlSurface->w + kCycleCellSize - 1) / kCycleCellSize;
-    gCycleGridRows = (gSdlSurface->h + kCycleCellSize - 1) / kCycleCellSize;
+    const unsigned char* pixels = nullptr;
+    int scanW = 0;
+    int scanH = 0;
+    int scanPitch = 0;
+    gCycleCellsWorldSpace = false;
+    if (gIsoWindow != -1) {
+        Window* isoWin = windowGetWindow(gIsoWindow);
+        if (isoWin != nullptr && (isoWin->flags & WINDOW_HIDDEN) == 0 && isoWin->buffer != nullptr) {
+            pixels = isoWin->buffer;
+            scanW = isoWin->width;
+            scanH = isoWin->height;
+            scanPitch = isoWin->width;
+            gCycleCellsWorldSpace = true;
+        }
+    }
+    if (pixels == nullptr) {
+        pixels = static_cast<const unsigned char*>(gSdlSurface->pixels);
+        scanW = gSdlSurface->w;
+        scanH = gSdlSurface->h;
+        scanPitch = gSdlSurface->pitch;
+    }
+
+    gCycleGridCols = (scanW + kCycleCellSize - 1) / kCycleCellSize;
+    gCycleGridRows = (scanH + kCycleCellSize - 1) / kCycleCellSize;
     if (gCycleGridCols > kCycleGridMaxCols) gCycleGridCols = kCycleGridMaxCols;
     if (gCycleGridRows > kCycleGridMaxRows) gCycleGridRows = kCycleGridMaxRows;
 
@@ -157,12 +185,12 @@ static void paletteRebuildPresence()
     }
     gCycleAnyPresent = false;
 
-    const int cellW = (gSdlSurface->w + gCycleGridCols - 1) / gCycleGridCols;
-    const int cellH = (gSdlSurface->h + gCycleGridRows - 1) / gCycleGridRows;
+    const int cellW = (scanW + gCycleGridCols - 1) / gCycleGridCols;
+    const int cellH = (scanH + gCycleGridRows - 1) / gCycleGridRows;
 
-    const unsigned char* row = static_cast<const unsigned char*>(gSdlSurface->pixels);
-    for (int y = 0; y < gSdlSurface->h; y++) {
-        for (int x = 0; x < gSdlSurface->w; x++) {
+    const unsigned char* row = pixels;
+    for (int y = 0; y < scanH; y++) {
+        for (int x = 0; x < scanW; x++) {
             unsigned char index = row[x];
             gPaletteIndexPresent[index] = true;
             if (index >= kCycleRangeStart) {
@@ -174,7 +202,7 @@ static void paletteRebuildPresence()
                 gCycleAnyPresent = true;
             }
         }
-        row += gSdlSurface->pitch;
+        row += scanPitch;
     }
 
     gPalettePresenceValid = true;
@@ -436,10 +464,19 @@ void directDrawSetPaletteInRange(unsigned char* palette, int start, int count)
         if (visibleChange) {
             const bool cycleOnly = start >= kCycleRangeStart && start + count <= 256;
             if (cycleOnly && gCycleCellsEverBuilt && gCycleAnyPresent) {
+                int cellMarginX = 0;
+                int cellMarginY = 0;
+                if (gCycleCellsWorldSpace) {
+                    mapGetIsoMargins(&cellMarginX, &cellMarginY);
+                }
                 for (int i = 0; i < gCycleGridCols * gCycleGridRows; i++) {
                     const CycleCell& cell = gCycleCells[i];
                     if (cell.maxX >= 0) {
-                        SDL_Rect r = { cell.minX, cell.minY,
+                        // World-space cells convert to screen for the mark;
+                        // the ambient mirror carries the unclipped world
+                        // rect into the ring list, so off-crop fires keep
+                        // animating at zoom-out.
+                        SDL_Rect r = { cell.minX - cellMarginX, cell.minY - cellMarginY,
                             cell.maxX - cell.minX + 1, cell.maxY - cell.minY + 1 };
                         renderMarkDirtyAmbient(&r);
                     }

@@ -847,50 +847,68 @@ void _mouse_info()
                         gPanLastTicks = nowTicks;
                     }
 
-                    static int sPinchPrevSpread = 0;
+                    static double sPinchSmoothedSpread = 0.0;
+                    static double sPinchBaseSpread = 0.0;
+                    static double sPinchBaseZoom = 1.0;
+                    static bool sPinchEngaged = false;
                     static double sPanCarryX = 0.0;
                     static double sPanCarryY = 0.0;
                     static double sZoomAnchorCarryX = 0.0;
                     static double sZoomAnchorCarryY = 0.0;
                     if (gesture.state == kBegan) {
-                        sPinchPrevSpread = touch_active_finger_spread();
+                        sPinchSmoothedSpread = touch_active_finger_spread();
+                        sPinchBaseSpread = sPinchSmoothedSpread;
+                        sPinchBaseZoom = renderIsoGetZoom();
+                        sPinchEngaged = false;
                         sPanCarryX = 0.0;
                         sPanCarryY = 0.0;
                         sZoomAnchorCarryX = 0.0;
                         sZoomAnchorCarryY = 0.0;
                     }
 
-                    // The standard two-finger gesture: pan and zoom run
-                    // SIMULTANEOUSLY, no modes and no thresholds (the way
-                    // UIPinchGestureRecognizer / map apps do it). Spread
-                    // jitter integrates to zero, and the zoom is anchored
-                    // at the finger centroid, so unintended scale noise is
-                    // imperceptible while a deliberate pinch responds
-                    // instantly. Fingers together = zoom out.
+                    // Canonical pinch (UIPinchGestureRecognizer style): the
+                    // scale derives from the TOTAL spread ratio relative to
+                    // the gesture start - never integrated event-to-event,
+                    // so finger jitter stays bounded instead of random-
+                    // walking the zoom. Recognition needs a deliberate ~5%
+                    // spread change; until then a two-finger pan touches
+                    // the zoom not at all. On recognition the base rebases
+                    // so the scale continues without a jump. Fingers
+                    // together = zoom out, anchored at the centroid.
                     if (gesture.numberOfTouches == 2 && gesture.state != kEnded) {
-                        int spread = touch_active_finger_spread();
-                        if (spread > 0 && sPinchPrevSpread > 0 && spread != sPinchPrevSpread) {
-                            double oldZoom = renderIsoGetZoom();
-                            renderIsoSetZoom(oldZoom * sPinchPrevSpread / spread);
-                            double newZoom = renderIsoGetZoom();
-                            if (newZoom != oldZoom) {
-                                // Keep the world point under the pinch
-                                // centroid stationary: world(S) = const
-                                // requires a camera shift of
-                                // (oldZoom - newZoom) * (S - center).
-                                sZoomAnchorCarryX += (oldZoom - newZoom) * (gesture.x - screenGetWidth() / 2.0);
-                                sZoomAnchorCarryY += (oldZoom - newZoom) * (gesture.y - screenGetVisibleHeight() / 2.0);
-                                int anchorX = static_cast<int>(sZoomAnchorCarryX);
-                                int anchorY = static_cast<int>(sZoomAnchorCarryY);
-                                sZoomAnchorCarryX -= anchorX;
-                                sZoomAnchorCarryY -= anchorY;
-                                if (anchorX != 0 || anchorY != 0) {
-                                    mapScrollPixels(anchorX, anchorY);
+                        int spreadRaw = touch_active_finger_spread();
+                        if (spreadRaw > 0) {
+                            if (sPinchSmoothedSpread <= 0.0) {
+                                sPinchSmoothedSpread = spreadRaw;
+                                sPinchBaseSpread = spreadRaw;
+                                sPinchBaseZoom = renderIsoGetZoom();
+                            }
+                            sPinchSmoothedSpread += 0.5 * (spreadRaw - sPinchSmoothedSpread);
+                            if (!sPinchEngaged) {
+                                double ratio = sPinchSmoothedSpread / sPinchBaseSpread;
+                                if (ratio > 1.05 || ratio < 1.0 / 1.05) {
+                                    sPinchEngaged = true;
+                                    sPinchBaseSpread = sPinchSmoothedSpread;
+                                    sPinchBaseZoom = renderIsoGetZoom();
+                                }
+                            } else {
+                                double oldZoom = renderIsoGetZoom();
+                                renderIsoSetZoom(sPinchBaseZoom * sPinchBaseSpread / sPinchSmoothedSpread);
+                                double newZoom = renderIsoGetZoom();
+                                if (newZoom != oldZoom) {
+                                    // Keep the world point under the pinch
+                                    // centroid stationary.
+                                    sZoomAnchorCarryX += (oldZoom - newZoom) * (gesture.x - screenGetWidth() / 2.0);
+                                    sZoomAnchorCarryY += (oldZoom - newZoom) * (gesture.y - screenGetVisibleHeight() / 2.0);
+                                    int anchorX = static_cast<int>(sZoomAnchorCarryX);
+                                    int anchorY = static_cast<int>(sZoomAnchorCarryY);
+                                    sZoomAnchorCarryX -= anchorX;
+                                    sZoomAnchorCarryY -= anchorY;
+                                    if (anchorX != 0 || anchorY != 0) {
+                                        mapScrollPixels(anchorX, anchorY);
+                                    }
                                 }
                             }
-                        }
-                        if (spread > 0) {
-                            sPinchPrevSpread = spread;
                         }
                     }
 

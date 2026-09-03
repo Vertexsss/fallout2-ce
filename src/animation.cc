@@ -3186,8 +3186,26 @@ void _dude_fidget()
             Rect rect;
             objectGetRect(object, &rect);
 
+            // Object rects are world (iso window local) space; test against
+            // the visible crop - _scr_size missed critters standing in the
+            // right/bottom margins at 1.5x (they never fidgeted).
+            Rect viewRect;
+            int cropX;
+            int cropY;
+            int cropW;
+            int cropH;
+            renderIsoZoomCrop(&cropX, &cropY, &cropW, &cropH);
+            if (cropW > 0 && cropH > 0) {
+                viewRect.left = cropX;
+                viewRect.top = cropY;
+                viewRect.right = cropX + cropW - 1;
+                viewRect.bottom = cropY + cropH - 1;
+            } else {
+                rectCopy(&viewRect, &_scr_size);
+            }
+
             Rect intersection;
-            if (rectIntersection(&rect, &_scr_size, &intersection) == 0 && (gMapHeader.index != MAP_SPECIAL_RND_WOODSMAN || object->pid != 0x10000FA)) {
+            if (rectIntersection(&rect, &viewRect, &intersection) == 0 && (gMapHeader.index != MAP_SPECIAL_RND_WOODSMAN || object->pid != 0x10000FA)) {
                 candidates[candidatesLength++] = object;
             }
         }

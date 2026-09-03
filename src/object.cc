@@ -1487,7 +1487,11 @@ int objectSetLocation(Object* obj, int tile, int elevation, Rect* rect)
                 }
 
                 if (rect != nullptr) {
-                    rectUnion(rect, &_scr_size, rect);
+                    // The dirty rect is world (iso window local) space; the
+                    // roof fill can touch any part of the oversized world -
+                    // unioning with the SCREEN rect left the right/bottom
+                    // margins (visible at 1.5x) with the old roof.
+                    rectUnion(rect, &gObjectsWindowRect, rect);
                 }
             }
 

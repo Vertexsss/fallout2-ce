@@ -70,6 +70,36 @@ critter procs, `[tk]` = per-ticker time and refresh counts over the static
 window, `[gm]` = gameMouseRefresh branch counters. Set `show_fps=0` in the
 bench cfg or the overlay redraw counts as a present every frame.
 
+## Pathfinder differential test, combat bench, animation-step profile
+
+`bench_prof2.patch` is a superset of `bench_prof.patch` (apply one or the
+other, never both; same `prof_tmp.h` copy step). It adds:
+
+- **Pathfinder differential wrapper**: `pathfinderFindPath` runs the
+  classic flat-array search (verbatim copy) and the current one on EVERY
+  call and compares path length, rotations and `_moveBlockObj`; any
+  difference prints `[pf] MISMATCH ...`. `FALLOUT_PATHSTRESS=1` additionally
+  pushes ~90 random from/to pairs (near, mid, far; both blocking callbacks;
+  with and without `requireEmptyDest`) through the wrapper once per loaded
+  map, so a full `FALLOUT_ALLMAPS=1` survey covers all 77 maps:
+  `... FALLOUT_ALLMAPS=1 FALLOUT_PATHSTRESS=1 ./fallout2-ce.exe 2> pdiff_all.txt; grep -c MISMATCH pdiff_all.txt`
+  (`[pf] stress map=.. | total calls=.. mismatch=.. classic_ms=.. new_ms=..`).
+  Use it whenever the pathfinder is touched.
+- **Combat bench**: `FALLOUT_COMBATBENCH=<mapid> FALLOUT_ALLOWCOMBAT=1`
+  teleports, then starts combat the way scripts do (`scriptsRequestCombat`
+  with the nearest living non-party critter as attacker) and ends the
+  player's turns with SPACE; `[t]` lines gain `ai=` (wall ms of
+  `_combat_ai`), `sp=`/`spcalls=` (`_make_straight_path_func`), `pf=`
+  (pathfinder ms), `combat=`. Map 11 (Klamath rat caves) works.
+- **Animation-step profile** (dumped at the combat bench exit): `[as]`
+  self time per `animationRunSequence` step kind and per `_object_animate`
+  part, `[acb]` per callback pointer, plus `_anim_set_end` /
+  `_combat_anim_finished` sub-timers. Finding to remember: the HP digit
+  roll on the interface bar (`interfaceRenderHitPoints(true)`) blocks inside
+  `inputPauseForTocks` for ~150 ms per hit - wall-clock scopes that wrap it
+  (the animation ticker) look huge but it sleeps and presents, it does not
+  spin.
+
 ## Hard-won facts
 
 - Unfocused, the game **freezes**: `inputGetInput` spins in

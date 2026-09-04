@@ -30,6 +30,8 @@ enum ProfPhase {
     PROF_PR_RING, // renderPresent: isoRingUpload (LUT convert + upload)
     PROF_PR_COMPOSE, // renderPresent: RenderClear .. draw calls
     PROF_PR_FLIP, // renderPresent: SDL_RenderPresent
+    PROF_AI, // _combat_ai wall time (includes animation waits)
+    PROF_SP, // _make_straight_path_func
     PROF_COUNT
 };
 
@@ -59,6 +61,10 @@ inline long long gProfGmShowCalls;
 inline long long gProfGmHover;
 inline double gProfOpMs[1024];
 inline long long gProfOpCalls[1024];
+inline double gProfCafPart[8]; // _combat_anim_finished parts: display, apply_damage, scr_end_combat, whole
+inline double gProfSetEndPart[8]; // _anim_set_end parts
+inline long long gProfSpCalls;
+inline long long gProfAiTurns;
 inline long long gProfPresents;
 inline long long gProfPrRects;
 inline long long gProfPrWorldRects;

@@ -59,7 +59,11 @@ FpsLimiter sharedFpsLimiter;
 // Distant small updates (the hex cursor near the bottom and an indicator in
 // a corner) must not be fused into one near-fullscreen union - each rect is
 // converted and uploaded separately. Overflow falls back to merging.
-constexpr int kMaxDirtyRects = 16;
+// Waste-aware merging (dirtyRectsShouldMerge) keeps thin strips and
+// scattered sprites as separate rects; 16 overflowed on busy pan frames
+// and the overflow folds rebuilt the very bounding boxes the merge rule
+// avoids. Dozens of small uploads are far cheaper than one full-screen one.
+constexpr int kMaxDirtyRects = 64;
 // Two rects this close (or overlapping) get merged.
 constexpr int kDirtyMergeSlackPx = 32;
 static SDL_Rect gDirtyRects[kMaxDirtyRects];
@@ -71,6 +75,43 @@ static int gDirtyRectCount = 0;
 // stale ring cells slide into view when the camera moves.
 static SDL_Rect gWorldDirtyRects[kMaxDirtyRects];
 static int gWorldDirtyRectCount = 0;
+
+// Merge two dirty rects only when their bounding box does not balloon far
+// past the pixels actually dirty. Without this a diagonal pan - which
+// exposes a full-height band AND a full-width band touching at one
+// corner - fused the two thin strips into their bounding box, i.e. the
+// whole view, and uploaded the full screen on every diagonal frame (a
+// 32-map survey: ~25% of all pan frames, diagonals 3x the cost of a
+// straight pan). Perpendicular strips and a strip plus a distant sprite
+// now stay separate; genuinely overlapping or adjacent rects still merge.
+static bool dirtyRectsShouldMerge(const SDL_Rect& a, const SDL_Rect& b)
+{
+    SDL_Rect u;
+    SDL_UnionRect(&a, &b, &u);
+    long long areaU = static_cast<long long>(u.w) * u.h;
+    long long areaSum = static_cast<long long>(a.w) * a.h + static_cast<long long>(b.w) * b.h;
+    return areaU <= areaSum * 2;
+}
+
+// Overflow: fold the new rect into whichever existing rect wastes the
+// least bounding-box area, not blindly into rect 0.
+static void dirtyRectsFoldLeastWaste(SDL_Rect* rects, int count, const SDL_Rect& r)
+{
+    int best = 0;
+    long long bestWaste = -1;
+    for (int i = 0; i < count; i++) {
+        SDL_Rect u;
+        SDL_UnionRect(&rects[i], &r, &u);
+        long long waste = static_cast<long long>(u.w) * u.h
+            - static_cast<long long>(rects[i].w) * rects[i].h
+            - static_cast<long long>(r.w) * r.h;
+        if (bestWaste < 0 || waste < bestWaste) {
+            bestWaste = waste;
+            best = i;
+        }
+    }
+    SDL_UnionRect(&rects[best], &r, &rects[best]);
+}
 
 void renderMarkWorldDirty(const Rect* rect)
 {
@@ -91,7 +132,8 @@ void renderMarkWorldDirty(const Rect* rect)
             inflated.y -= kDirtyMergeSlackPx;
             inflated.w += 2 * kDirtyMergeSlackPx;
             inflated.h += 2 * kDirtyMergeSlackPx;
-            if (SDL_HasIntersection(&inflated, &r) == SDL_TRUE) {
+            if (SDL_HasIntersection(&inflated, &r) == SDL_TRUE
+                && dirtyRectsShouldMerge(gWorldDirtyRects[i], r)) {
                 SDL_UnionRect(&gWorldDirtyRects[i], &r, &r);
                 gWorldDirtyRects[i] = gWorldDirtyRects[gWorldDirtyRectCount - 1];
                 gWorldDirtyRectCount--;
@@ -103,7 +145,7 @@ void renderMarkWorldDirty(const Rect* rect)
     if (gWorldDirtyRectCount < kMaxDirtyRects) {
         gWorldDirtyRects[gWorldDirtyRectCount++] = r;
     } else {
-        SDL_UnionRect(&gWorldDirtyRects[0], &r, &gWorldDirtyRects[0]);
+        dirtyRectsFoldLeastWaste(gWorldDirtyRects, gWorldDirtyRectCount, r);
     }
 }
 
@@ -1019,13 +1061,15 @@ bool renderIsoPanShift(int screenDx, int screenDy)
         // feel).
         return false;
     }
-    if (gDirtyRectCount > 4) {
-        // A busy frame (many animation rects pending) would need them all
-        // re-marked at shifted positions; with the merge slack that
-        // degenerates into full-screen uploads WORSE than the classic
-        // path. Fall back to the classic full refresh for this frame -
-        // never worse than the old behavior, and calm frames (the vast
-        // majority of a pan) keep the ring win.
+    if (gDirtyRectCount > 40) {
+        // Runaway safety only. The old threshold of 4 fell back to a
+        // classic full-window refresh on every busy frame - and profiling
+        // showed that fallback IS a full-screen upload, exactly the case
+        // it meant to avoid: on a populated map (wandering critters, a
+        // campfire) ~27% of horizontal-pan frames took it, and vertical
+        // pans hit a periodic ~66ms stall. The ring pan re-marks the
+        // scattered small rects instead and is never worse than a full
+        // refresh, so only a genuinely absurd rect count falls back now.
         return false;
     }
 
@@ -1355,7 +1399,8 @@ void renderMarkDirtyAmbient(const SDL_Rect* rect)
             inflated.w += 2 * kDirtyMergeSlackPx;
             inflated.h += 2 * kDirtyMergeSlackPx;
 
-            if (SDL_HasIntersection(&inflated, &clipped) == SDL_TRUE) {
+            if (SDL_HasIntersection(&inflated, &clipped) == SDL_TRUE
+                && dirtyRectsShouldMerge(gDirtyRects[i], clipped)) {
                 SDL_UnionRect(&gDirtyRects[i], &clipped, &clipped);
                 gDirtyRects[i] = gDirtyRects[gDirtyRectCount - 1];
                 gDirtyRectCount--;
@@ -1368,8 +1413,7 @@ void renderMarkDirtyAmbient(const SDL_Rect* rect)
     if (gDirtyRectCount < kMaxDirtyRects) {
         gDirtyRects[gDirtyRectCount++] = clipped;
     } else {
-        // Overflow: fold into the first rect.
-        SDL_UnionRect(&gDirtyRects[0], &clipped, &gDirtyRects[0]);
+        dirtyRectsFoldLeastWaste(gDirtyRects, gDirtyRectCount, clipped);
     }
 }
 

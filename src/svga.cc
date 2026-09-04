@@ -1105,22 +1105,25 @@ bool renderIsoPanShift(int screenDx, int screenDy)
         renderMarkWorldDirty(&moved);
     }
 
-    // Transparent windows above the iso window (touch overlay buttons) get
-    // recomposited by the suppressed refresh with their marks dropped -
-    // mark their rects explicitly.
+    // TRANSPARENT windows above the iso window (dude pointer, toolbar
+    // padding) show the world through their holes, and the suppressed
+    // recomposite drops their marks - re-mark exactly those. Opaque
+    // windows (the interface bar, its side arts) do not change with a
+    // pan: re-marking them cost a 333kB classic re-upload of the bar on
+    // EVERY shift, and the ambient mirror then pushed the same band into
+    // the ring (another 316-474kB) for world pixels that never changed -
+    // measured as ~70% of the per-shift upload at 1.5x and the bulk of
+    // the ~300-400kB/frame at 1x.
     {
-        Rect above[50];
-        int aboveCount = windowGetVisibleRectsAbove(gIsoWindow, above, 50);
+        int aboveIds[50];
+        int aboveCount = windowGetWindowsAbove(gIsoWindow, aboveIds, 50);
         SDL_Rect isoArea = { 0, 0, gSdlTextureSurface->w, gSdlTextureSurface->h };
         for (int i = 0; i < aboveCount; i++) {
-            SDL_Rect wr;
-            wr.x = above[i].left;
-            wr.y = above[i].top;
-            wr.w = above[i].right - above[i].left + 1;
-            wr.h = above[i].bottom - above[i].top + 1;
-            // Only the part overlapping the iso view can be touched by the
-            // suppressed recomposite - marking the interface bar strips
-            // whole merged everything into full-screen rects.
+            Window* above = windowGetWindow(aboveIds[i]);
+            if (above == nullptr || (above->flags & WINDOW_TRANSPARENT) == 0) {
+                continue;
+            }
+            SDL_Rect wr = { above->rect.left, above->rect.top, above->width, above->height };
             SDL_Rect clippedAbove;
             if (SDL_IntersectRect(&wr, &isoArea, &clippedAbove) == SDL_TRUE) {
                 renderMarkDirtyAmbient(&clippedAbove);

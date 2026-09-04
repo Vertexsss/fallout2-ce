@@ -1,6 +1,7 @@
+import harness_common
 import re, os
 from collections import defaultdict
-G = r"C:\Users\45247\AppData\Local\Temp\claude\c--Users-45247-cursor-projects-fallout\139ff2f2-55f1-4a38-ab82-942554b6d5ad\scratchpad\game"
+G = harness_common.GAME
 
 def load(fn):
     per = defaultdict(lambda: defaultdict(list))

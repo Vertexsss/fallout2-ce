@@ -1,3 +1,4 @@
+import harness_common
 """TEMP targeted profiler for the slow maps. Applies on top of bench.patch
 (allmaps.py + allmaps2.py + bench2.py + autogame.py already applied):
 - driver map list from env FALLOUT_MAPS="79,92,93,109,9" (default), 5s sweep/map
@@ -5,7 +6,7 @@
   summed world-repaint area since last present, light updates since last present.
 """
 import io, os, sys, re
-os.chdir(r"C:\Users\45247\AppData\Local\Temp\claude\c--Users-45247-cursor-projects-fallout\139ff2f2-55f1-4a38-ab82-942554b6d5ad\scratchpad\f2ce")
+os.chdir(harness_common.REPO)
 def rd(p): return io.open(p, encoding='utf-8', newline='').read()
 def wr(p, t): io.open(p, 'w', encoding='utf-8', newline='').write(t)
 def repl(p, old, new, tag, n=1):

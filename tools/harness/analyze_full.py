@@ -1,9 +1,10 @@
+import harness_common
 """Full-run analysis with per-frame counters. Usage: analyze_full.py full32.txt
 Per map in run order: frames, dt p50/p90/max, refresh calls/frame, repaint kpx/frame,
 light updates/frame, art misses/frame, upload kB/frame. Flags maps with frames < 80% of median."""
 import re, sys, os
 from collections import defaultdict
-G = r"C:\Users\45247\AppData\Local\Temp\claude\c--Users-45247-cursor-projects-fallout\139ff2f2-55f1-4a38-ab82-942554b6d5ad\scratchpad\game"
+G = harness_common.GAME
 names = {}
 try:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

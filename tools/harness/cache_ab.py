@@ -1,7 +1,8 @@
+import harness_common
 """Compare warm-up runs: per map frames/dt/art-cache misses. Usage: cache_ab.py runA.txt [runB.txt]"""
 import re, sys, os
 from collections import defaultdict
-G = r"C:\Users\45247\AppData\Local\Temp\claude\c--Users-45247-cursor-projects-fallout\139ff2f2-55f1-4a38-ab82-942554b6d5ad\scratchpad\game"
+G = harness_common.GAME
 names = {}
 try:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

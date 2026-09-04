@@ -1,8 +1,9 @@
+import harness_common
 """Compare two full runs (e.g. 1x vs 1.5x): per map frames, dt p50/p90, upload kB/frame, full%.
 Usage: compare_zoom.py full32.txt fullzoom.txt"""
 import re, sys, os
 from collections import defaultdict
-G = r"C:\Users\45247\AppData\Local\Temp\claude\c--Users-45247-cursor-projects-fallout\139ff2f2-55f1-4a38-ab82-942554b6d5ad\scratchpad\game"
+G = harness_common.GAME
 names = {}
 try:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

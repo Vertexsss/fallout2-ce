@@ -101,6 +101,7 @@ void _gmouse_3d_refresh();
 void gameMouseResetBouncingCursorFid();
 void gameMouseObjectsShow();
 void gameMouseObjectsHide();
+void gameMouseObjectsHideForScroll();
 bool gameMouseObjectsIsVisible();
 int gameMouseRenderPrimaryAction(int x, int y, int menuItem, int width, int height);
 int _gmouse_3d_pick_frame_hot(int* x, int* y);

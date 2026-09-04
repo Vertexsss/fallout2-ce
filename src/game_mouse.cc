@@ -122,6 +122,10 @@ static bool gGameMouseObjectsInitialized = false;
 // 0x518C84 gmouse_3d_hover_test
 static bool _gmouse_3d_hover_test = false;
 
+// The world cursor objects were hidden by a camera scroll (not by a UI
+// screen). Re-showing them then must not force the hover test.
+static bool gGameMouseHiddenByScroll = false;
+
 // 0x518C88 gmouse_3d_last_move_time
 static unsigned int _gmouse_3d_last_move_time = 0;
 
@@ -1764,7 +1768,20 @@ void gameMouseObjectsShow()
     }
 
     _gmouse_3d_hover_test = false;
-    _gmouse_3d_last_move_time = getTicks() - 250;
+    if (gGameMouseHiddenByScroll && !isInCombat()) {
+        // Re-shown after a camera scroll: the cursor sits still while the
+        // map moves under it, so the ordinary 250ms hover delay applies.
+        // Forcing the test here (the vanilla path, meant for cursor
+        // reappearance after a UI screen) ran _make_path from the dude to
+        // the tile under the cursor on EVERY pan frame - the single largest
+        // CPU cost of camera motion (up to 2ms per frame on crowded maps),
+        // for an "unreachable" mark nobody can read on a moving view.
+        // In combat the AP cost label keeps its immediate refresh.
+        _gmouse_3d_last_move_time = getTicks();
+    } else {
+        _gmouse_3d_last_move_time = getTicks() - 250;
+    }
+    gGameMouseHiddenByScroll = false;
 }
 
 // 0x44CE34 gmouse_3d_off
@@ -1794,6 +1811,18 @@ void gameMouseObjectsHide()
         rectUnion(&rect1, &rect2, &rect1);
         tileWindowRefreshRect(&rect1, gElevation);
     }
+
+    // A hide by a UI screen (or anything but a scroll) restores the vanilla
+    // immediate hover test on the next show.
+    gGameMouseHiddenByScroll = false;
+}
+
+// Hide the world cursor objects for a camera scroll (map buffer shift). The
+// next show keeps the regular hover delay instead of forcing the test.
+void gameMouseObjectsHideForScroll()
+{
+    gameMouseObjectsHide();
+    gGameMouseHiddenByScroll = true;
 }
 
 // 0x44CEB0 gmouse_3d_is_on

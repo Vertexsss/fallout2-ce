@@ -856,7 +856,7 @@ int mapScrollPixels(int dxPixels, int dyPixels)
 
     // Classic mapScroll hides the world cursor before every buffer shift;
     // keep that invariant for sub-tile (bias-only) shifts as well.
-    gameMouseObjectsHide();
+    gameMouseObjectsHideForScroll();
 
     bool boundaryRefreshed = false;
     if (stepsX != 0 || stepsY != 0) {
@@ -955,7 +955,7 @@ int mapScroll(int dx, int dy, bool fastPaced)
         }
     }
 
-    gameMouseObjectsHide();
+    gameMouseObjectsHideForScroll();
 
     int centerScreenX;
     int centerScreenY;

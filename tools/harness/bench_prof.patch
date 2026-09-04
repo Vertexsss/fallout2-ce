@@ -1,0 +1,1002 @@
+diff --git a/src/animation.cc b/src/animation.cc
+index 6c37d1f9..1f92c5c0 100644
+--- a/src/animation.cc
++++ b/src/animation.cc
+@@ -1,4 +1,5 @@
+ #include "animation.h"
++#include "prof_tmp.h"
+ 
+ #include "camera_follow.h"
+ 
+@@ -2855,6 +2856,7 @@ static int _anim_animate(Object* obj, AnimationType anim, int animationSequenceI
+ // 0x417B30
+ void _object_animate()
+ {
++    ProfScope profScopeAnim(PROF_ANIM);
+     if (gAnimationCurrentSad == 0) {
+         return;
+     }
+@@ -2884,6 +2886,21 @@ void _object_animate()
+ 
+         sad->animationTimestamp = time;
+ 
++        {
++            // TEMP PROFILING: is this animated object inside the visible crop?
++            Rect objRect;
++            objectGetRect(object, &objRect);
++            int cx, cy, cw, ch;
++            renderIsoZoomCrop(&cx, &cy, &cw, &ch);
++            Rect crop = { cx, cy, cx + cw - 1, cy + ch - 1 };
++            Rect isect;
++            if (cw > 0 && ch > 0 && rectIntersection(&objRect, &crop, &isect) == 0) {
++                gProfAnimOn++;
++            } else {
++                gProfAnimOff++;
++            }
++        }
++
+         if (animationRunSequence(sad->animationSequenceIndex) == -1) {
+             continue;
+         }
+diff --git a/src/art.cc b/src/art.cc
+index 43990001..98a2b44e 100644
+--- a/src/art.cc
++++ b/src/art.cc
+@@ -1059,6 +1059,7 @@ static int artCacheGetFileSizeImpl(int fid, int* sizePtr)
+ // 0x419B78
+ static int artCacheReadDataImpl(int fid, int* sizePtr, unsigned char* data)
+ {
++    { extern int gProfArtMisses; gProfArtMisses++; }  // TEMP profiling
+     int result = -1;
+ 
+     char* artFileName = artBuildFilePath(fid);
+diff --git a/src/audio_engine.cc b/src/audio_engine.cc
+index 0675bf00..4fa513da 100644
+--- a/src/audio_engine.cc
++++ b/src/audio_engine.cc
+@@ -1,4 +1,5 @@
+ #include "audio_engine.h"
++#include <stdlib.h>
+ 
+ #include <string.h>
+ 
+@@ -55,7 +56,7 @@ static void audioEngineMixin(void* userData, Uint8* stream, int length)
+ {
+     memset(stream, gAudioEngineSpec.silence, length);
+ 
+-    if (!gProgramIsActive) {
++    if (!gProgramIsActive && getenv("FALLOUT_BENCH") == nullptr) {
+         return;
+     }
+ 
+diff --git a/src/combat.cc b/src/combat.cc
+index 0083c4e6..43a8cda0 100644
+--- a/src/combat.cc
++++ b/src/combat.cc
+@@ -1,4 +1,5 @@
+ #include "combat.h"
++#include <stdlib.h>
+ 
+ #include "touch.h"
+ 
+@@ -3450,6 +3451,9 @@ static bool _combat_should_end()
+ // 0x422D2C
+ void _combat(CombatStartData* csd)
+ {
++    if (getenv("FALLOUT_BENCH") != nullptr) {  // TEMP BENCH: never start combat
++        return;
++    }
+     ScopedGameMode gm(GameMode::kCombat);
+ 
+     if (csd == nullptr
+diff --git a/src/cycle.cc b/src/cycle.cc
+index 53f6120e..136cba17 100644
+--- a/src/cycle.cc
++++ b/src/cycle.cc
+@@ -1,4 +1,5 @@
+ #include "cycle.h"
++#include "prof_tmp.h"
+ 
+ #include "combat.h"
+ #include "fps_limiter.h"
+@@ -187,6 +188,7 @@ void cycleSetSpeedFactor(int value)
+ // 0x42E97C cycle_colors
+ void colorCycleTicker()
+ {
++    ProfScope profScopeCycle(PROF_CYCLE);
+     // 0x518494
+     static int slime_start = 0;
+ 
+diff --git a/src/fps_limiter.cc b/src/fps_limiter.cc
+index fc3dc627..3f910710 100644
+--- a/src/fps_limiter.cc
++++ b/src/fps_limiter.cc
+@@ -1,7 +1,11 @@
+ #include "fps_limiter.h"
+ 
++#include <stdio.h>
++#include <stdlib.h>
++
+ #include "eco_cores.h"
+ #include "power_state.h"
++#include "prof_tmp.h"
+ 
+ #include <SDL.h>
+ 
+@@ -46,6 +50,38 @@ void FpsLimiter::throttle()
+ {
+     unsigned int now = SDL_GetTicks();
+ 
++    // TEMP PROFILING: one line per second with the phase sums (ms/s).
++    {
++        static unsigned int profLast = 0;
++        static bool profOn = getenv("FALLOUT_PHASEBENCH") != nullptr;
++        if (profOn && now - profLast >= 1000) {
++            if (profLast != 0) {
++                fprintf(stderr, "[t] t=%u loops=%lld pbk=%.1f tick=%.1f anim=%.1f scr=%.1f gm=%.1f cyc=%.1f snd=%.1f render=%.1f wref=%.1f present=%.1f sleep=%.1f anim_on=%lld anim_off=%lld rr_in=%lld rr_out=%lld tgt=%u tileref=%.1f trcalls=%lld trarea=%lld gmpath=%.1f pathcalls=%lld"
++                    " scr_upd=%.2f scr_sfall=%.2f scr_evt=%.2f scr_crit=%.2f scr_timed=%.2f progs=%lld critcalls=%lld critmax=%.2f critmaxidx=%d"
++                    " pr_blit=%.2f pr_upc=%.2f pr_ring=%.2f pr_comp=%.2f pr_flip=%.2f presents=%lld prrects=%lld prwrects=%lld\n",
++                    now, gProfLoops, gProfMs[PROF_PBK], gProfMs[PROF_TICKERS], gProfMs[PROF_ANIM], gProfMs[PROF_SCRIPT],
++                    gProfMs[PROF_GMOUSE], gProfMs[PROF_CYCLE], gProfMs[PROF_SOUND], gProfMs[PROF_RENDER], gProfMs[PROF_WREF],
++                    gProfMs[PROF_PRESENT], gProfMs[PROF_SLEEP], gProfAnimOn, gProfAnimOff, gProfRrIn, gProfRrOut, _lastTargetFps,
++                    gProfMs[PROF_TILEREF], gProfTileRefCalls, gProfTileRefArea / 1024, gProfMs[PROF_GM_PATH], gProfPathCalls,
++                    gProfMs[PROF_SCR_UPD], gProfMs[PROF_SCR_SFALL], gProfMs[PROF_SCR_EVT], gProfMs[PROF_SCR_CRIT], gProfMs[PROF_SCR_TIMED],
++                    gProfProgCount, gProfCritCalls, gProfCritMaxMs, gProfCritMaxIndex,
++                    gProfMs[PROF_PR_BLIT], gProfMs[PROF_PR_UPC], gProfMs[PROF_PR_RING], gProfMs[PROF_PR_COMPOSE], gProfMs[PROF_PR_FLIP],
++                    gProfPresents, gProfPrRects, gProfPrWorldRects);
++            }
++            profLast = now;
++            for (int i = 0; i < PROF_COUNT; i++) {
++                gProfMs[i] = 0.0;
++            }
++            gProfLoops = 0;
++            gProfAnimOn = gProfAnimOff = gProfRrIn = gProfRrOut = 0;
++            gProfTileRefCalls = gProfTileRefArea = gProfPathCalls = 0;
++            gProfProgCount = gProfCritCalls = 0;
++            gProfCritMaxMs = 0.0;
++            gProfCritMaxIndex = -1;
++            gProfPresents = gProfPrRects = gProfPrWorldRects = 0;
++        }
++    }
++
+     // Time since mark() is the work portion of this iteration.
+     _busyAccumMs += now - _ticks;
+     if (now - _busyWindowStart >= 1000) {
+@@ -68,7 +104,7 @@ void FpsLimiter::throttle()
+     }
+     const unsigned int baseFps = _fps < cap ? _fps : cap;
+     unsigned int targetFps = baseFps;
+-    if (!gProgramIsActive) {
++    if (!gProgramIsActive && getenv("FALLOUT_BENCH") == nullptr) {
+         // Window is not focused (backgrounded, Stage Manager, Slide Over).
+         targetFps = 5;
+     } else if (now - _lastActivityTicks > _idleGraceMs) {
+@@ -101,6 +137,7 @@ void FpsLimiter::throttle()
+     // Hard part of the budget: never exceed the nominal frame rate.
+     unsigned int elapsed = SDL_GetTicks() - _ticks;
+     if (minFrameTime > elapsed) {
++        ProfScope ps(PROF_SLEEP);
+         SDL_Delay(minFrameTime - elapsed);
+     }
+ 
+@@ -137,9 +174,11 @@ void FpsLimiter::throttle()
+         if (remaining > 2 * chunkMs) {
+             // Only the tail of the budget needs fine-grained polling for
+             // input latency; the bulk is one nap (halves the wakeups).
++            ProfScope ps(PROF_SLEEP);
+             SDL_Delay(remaining - chunkMs);
+             continue;
+         }
++        ProfScope ps2(PROF_SLEEP);
+         SDL_Delay(remaining < chunkMs ? remaining : chunkMs);
+     }
+ }
+diff --git a/src/game_dialog.cc b/src/game_dialog.cc
+index 2a7c1b48..c46f2306 100644
+--- a/src/game_dialog.cc
++++ b/src/game_dialog.cc
+@@ -1,4 +1,5 @@
+ #include "game_dialog.h"
++#include <stdlib.h>
+ 
+ #include <algorithm>
+ #include <assert.h>
+@@ -822,6 +823,9 @@ bool _gdialogActive()
+ // 0x444D3C
+ void gameDialogEnter(Object* speaker, int mode)
+ {
++    if (getenv("FALLOUT_BENCH") != nullptr) {  // TEMP BENCH: never open a dialog
++        return;
++    }
+     if (speaker == nullptr) {
+         debugPrint("\nError: gdialogEnter: target was NULL!");
+         return;
+diff --git a/src/game_mouse.cc b/src/game_mouse.cc
+index 709f5f75..01e19529 100644
+--- a/src/game_mouse.cc
++++ b/src/game_mouse.cc
+@@ -1,4 +1,5 @@
+ #include "game_mouse.h"
++#include "prof_tmp.h"
+ 
+ #include <limits.h>
+ 
+@@ -537,6 +538,7 @@ int _gmouse_is_scrolling()
+ // 0x44B684 gmouse_bk_process
+ void gameMouseRefresh()
+ {
++    ProfScope profScopeGm(PROF_GMOUSE);
+     if (!gGameMouseInitialized) {
+         return;
+     }
+@@ -690,6 +692,7 @@ void gameMouseRefresh()
+         }
+ 
+         if ((gGameMouseHexCursor->flags & OBJECT_HIDDEN) != OBJECT_NONE) {
++            gProfGmShowCalls++;
+             gameMouseObjectsShow();
+         }
+ 
+@@ -738,6 +741,7 @@ void gameMouseRefresh()
+             r1.top = 0;
+             r1.right = -1;
+             r1.bottom = -1;
++            gProfGmMemo++;
+             if (_gmouse_3d_move_to(mouseX, mouseY, gElevation, &r1) == 0
+                 && r1.right >= r1.left && r1.bottom >= r1.top) {
+                 tileWindowRefreshRect(&r1, gElevation);
+@@ -766,6 +770,7 @@ void gameMouseRefresh()
+         if (_gmouse_3d_hover_test || getTicksBetween(v3, _gmouse_3d_last_move_time) < 250) {
+             return;
+         }
++        gProfGmHover++;
+ 
+         if (gGameMouseMode != GAME_MOUSE_MODE_MOVE) {
+             if (gGameMouseMode == GAME_MOUSE_MODE_ARROW) {
+@@ -933,7 +938,10 @@ void gameMouseRefresh()
+ 
+         char formattedActionPoints[8];
+         Color color;
++        double profPathT0 = profNow();
+         int distance = _make_path(gDude, gDude->tile, gGameMouseHexCursor->tile, nullptr, 1);
++        gProfMs[PROF_GM_PATH] += profNow() - profPathT0;
++        gProfPathCalls++;
+         if (distance != 0) {
+             if (!isInCombat()) {
+                 formattedActionPoints[0] = '\0';
+diff --git a/src/game_sound.cc b/src/game_sound.cc
+index e8a15591..96ea9050 100644
+--- a/src/game_sound.cc
++++ b/src/game_sound.cc
+@@ -1,5 +1,17 @@
+ #include "game_sound.h"
+ 
++#include <stdlib.h>
++#include "tile.h"
++#include "touch_overlay.h"
++#include "prof_tmp.h"
++#include "game_mouse.h"
++#include "camera_follow.h"
++#include "cycle.h"
++#include "text_object.h"
++#include "obj_types.h"
++#include "map_defs.h"
++#include "mouse.h"
++
+ #include "fps_limiter.h"
+ #include "lips.h"
+ 
+@@ -1561,6 +1573,253 @@ int soundPlayFile(const char* name)
+ // 0x451A00
+ void _gsound_bkg_proc()
+ {
++    ProfScope profScopeSound(PROF_SOUND);
++    // TEMP PHASE BENCH (not committed): FALLOUT_PHASEBENCH=<mapid> teleports
++    // at 34s, sits static until 54s, auto-pans 54..74s, exits at 74s.
++    {
++        static int phPhase = 0;
++        const char* phEnv = getenv("FALLOUT_PHASEBENCH");
++        if (phEnv != nullptr && phPhase >= 0) {
++            unsigned int pt = SDL_GetTicks();
++            if (phPhase == 0 && pt > 34000) {
++                int mapId = atoi(phEnv);
++                MapTransition transition;
++                memset(&transition, 0, sizeof(transition));
++                transition.map = static_cast<Map>(mapId);
++                transition.elevation = 0;
++                transition.tile = -1;
++                transition.rotation = ROTATION_NE;
++                mapSetTransition(&transition);
++                fprintf(stderr, "[ph] teleport %d at %u\n", mapId, pt);
++                phPhase = 1;
++            } else if (phPhase == 1 && pt > 38000) {
++                // Reset the ticker attribution so the dump covers only the
++                // static window (38..54s).
++                for (int i = 0; i < 32; i++) {
++                    gProfTickMs[i] = 0.0;
++                    gProfTickRr[i] = 0;
++                }
++                gProfGmMemo = gProfGmShowCalls = gProfGmHover = 0;
++                phPhase = 11;
++            } else if (phPhase == 11 && pt > 54000) {
++                // Static-window ticker attribution.
++                for (int i = 0; i < 32; i++) {
++                    if (gProfTickProc[i] == nullptr) {
++                        continue;
++                    }
++                    const char* nm = "?";
++                    void* p = gProfTickProc[i];
++                    if (p == reinterpret_cast<void*>(_object_animate)) nm = "_object_animate";
++                    else if (p == reinterpret_cast<void*>(_dude_fidget)) nm = "_dude_fidget";
++                    else if (p == reinterpret_cast<void*>(gameMouseRefresh)) nm = "gameMouseRefresh";
++                    else if (p == reinterpret_cast<void*>(cameraFollowTick)) nm = "cameraFollowTick";
++                    else if (p == reinterpret_cast<void*>(colorCycleTicker)) nm = "colorCycleTicker";
++                    else if (p == reinterpret_cast<void*>(_gsound_bkg_proc)) nm = "_gsound_bkg_proc";
++                    fprintf(stderr, "[tk] %d %s ms=%.1f rr=%lld\n", i, nm, gProfTickMs[i], gProfTickRr[i]);
++                }
++                fprintf(stderr, "[gm] memo=%lld show=%lld hover=%lld\n", gProfGmMemo, gProfGmShowCalls, gProfGmHover);
++                touchOverlayToggleAutoPan();
++                fprintf(stderr, "[ph] pan ON at %u\n", pt);
++                phPhase = 2;
++            } else if (phPhase == 2 && pt > 74000) {
++                fprintf(stderr, "[ph] done at %u critter scripts on map=%d\n", pt, gProfCritScriptCount);
++                for (int rank = 0; rank < 15; rank++) {
++                    int best = -1;
++                    for (int i = 0; i < 4096; i++) {
++                        if (gProfCritByIdxCalls[i] > 0 && (best < 0 || gProfCritByIdxMs[i] > gProfCritByIdxMs[best])) {
++                            best = i;
++                        }
++                    }
++                    if (best < 0) {
++                        break;
++                    }
++                    fprintf(stderr, "[cs] idx=%d calls=%lld total_ms=%.1f avg_ms=%.2f\n", best, gProfCritByIdxCalls[best], gProfCritByIdxMs[best], gProfCritByIdxMs[best] / gProfCritByIdxCalls[best]);
++                    gProfCritByIdxCalls[best] = 0;
++                }
++                for (int rank = 0; rank < 14; rank++) {
++                    int best = -1;
++                    for (int i = 0; i < 1024; i++) {
++                        if (gProfOpCalls[i] > 0 && (best < 0 || gProfOpMs[i] > gProfOpMs[best])) {
++                            best = i;
++                        }
++                    }
++                    if (best < 0) {
++                        break;
++                    }
++                    fprintf(stderr, "[op] opcode=0x%04x calls=%lld total_ms=%.1f avg_us=%.1f\n", 0x8000 | best, gProfOpCalls[best], gProfOpMs[best], 1000.0 * gProfOpMs[best] / gProfOpCalls[best]);
++                    gProfOpCalls[best] = 0;
++                }
++                exit(0);
++            }
++        }
++    }
++    // TEMP TEST HOOK (not committed): FALLOUT_ALLMAPS v2 - walks the real
++    // location maps (no random-encounter maps), drops the dude on the map
++    // CENTER tile (20100 - never an exit grid, so no worldmap hijack), then
++    // sweeps the camera edge-to-edge THROUGH the center on 4 axes. Profile
++    // lines are tagged with the ACTUALLY loaded map, and only while the
++    // world view is up and no combat is running.
++    {
++        extern int gProfMap;
++        extern int gProfAxis;
++        static const int kMaps[] = {
++            3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
++            23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
++            41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 54, 55, 56, 57, 58, 59,
++            60, 61, 62, 63, 64, 65, 66, 67, 78, 79, 92, 93, 109, 126, 127, 135, 136,
++            137, 138, 139, 140, 147, 148 };
++        static int kMapsEnv[64]; static int kMapsEnvCount = -1;
++        if (kMapsEnvCount < 0) {
++            kMapsEnvCount = 0;
++            const char* e = getenv("FALLOUT_MAPS");
++            if (e) { const char* q = e; while (*q && kMapsEnvCount < 64) { kMapsEnv[kMapsEnvCount++] = atoi(q); while (*q && *q != ',') q++; if (*q == ',') q++; } }
++        }
++        const int* kMapsUse = kMapsEnvCount > 0 ? kMapsEnv : kMaps;
++        const int kMapCount = kMapsEnvCount > 0 ? kMapsEnvCount : (int)(sizeof(kMaps) / sizeof(kMaps[0]));
++        static int started = 0;
++        static int mapIdx = 0;
++        static unsigned int mapStart = 0;
++        static int dir = 1;
++        static double carry = 0.0;
++        static unsigned int last = 0;
++        static unsigned int isoDownSince = 0;
++        const int LOAD_MS = 1000;
++        const int SWEEP_MS = 4800;     // 4 axes * 1200ms
++        const int MAP_MS = LOAD_MS + SWEEP_MS;
++        if (getenv("FALLOUT_ALLMAPS") != nullptr) {
++            unsigned int now = SDL_GetTicks();
++            if (started == 0 && now > 34000) {
++                started = 1;
++                mapStart = 0;
++            }
++            if (started == 1) {
++                // Scripted cutscenes on first map entry (vsuit.mve in
++                // Arroyo village, and others): skip them and do not let
++                // the watchdog count movie time.
++                if (_moviePlaying()) {
++                    enqueueInputEvent(32);
++                    isoDownSince = 0;
++                    gProfAxis = -1;
++                    last = now;
++                } else
++                // Worldmap watchdog: the iso view down for 15s means a
++                // transition escaped to the world map - report and stop.
++                if (isoIsDisabled()) {
++                    if (isoDownSince == 0) isoDownSince = now;
++                    else if (now - isoDownSince > 15000) {
++                        fprintf(stderr, "[wd] iso down 15s at target=%d actual=%d - aborting\n", kMapsUse[mapIdx < kMapCount ? mapIdx : kMapCount - 1], gMapHeader.index);
++                        exit(2);
++                    }
++                } else {
++                    isoDownSince = 0;
++                }
++
++                if (mapStart == 0) {
++                    if (mapIdx >= kMapCount) {
++                        gProfAxis = -1; gProfMap = -1;
++                        fprintf(stderr, "[done] all maps\n");
++                        exit(0);
++                    }
++                    MapTransition tr;
++                    memset(&tr, 0, sizeof(tr));
++                    tr.map = static_cast<Map>(kMapsUse[mapIdx]);
++                    tr.elevation = 0;
++                    tr.tile = -1;  // map's designed start - never an exit grid (20100 was, on arvillag)
++                    tr.rotation = ROTATION_NE;
++                    mapSetTransition(&tr);
++                    gProfAxis = -1;
++                    mapStart = now;
++                    last = now;
++                    carry = 0.0;
++                    dir = 1;
++                } else {
++                    unsigned int el = now - mapStart;
++                    int target = kMapsUse[mapIdx];
++                    if (el >= (unsigned)MAP_MS) {
++                        if (gMapHeader.index != target) {
++                            fprintf(stderr, "[skip] target=%d actual=%d (combat=%d)\n", target, gMapHeader.index, (int)isInCombat());
++                        }
++                        mapIdx++;
++                        mapStart = 0;
++                    } else if (el < (unsigned)LOAD_MS || gMapHeader.index != target || isoIsDisabled() || isInCombat()) {
++                        gProfAxis = -1;
++                        last = now;
++                    } else {
++                        gProfMap = gMapHeader.index;
++                        // Wide-camera survey: FALLOUT_ZOOM=<z> sets the zoom
++                        // once per map after the load settles (EDG maps keep
++                        // 1x by design; leaving 1x validates the world once).
++                        {
++                            static int zoomedIdx = -1;
++                            const char* zEnv = getenv("FALLOUT_ZOOM");
++                            if (zEnv != nullptr && zoomedIdx != mapIdx) {
++                                zoomedIdx = mapIdx;
++                                renderIsoSetZoom(atof(zEnv));
++                            }
++                        }
++                        int axis = ((el - LOAD_MS) / 1200) % 4;
++                        gProfAxis = axis;
++                        unsigned int dt = now - last;
++                        last = now;
++                        if (dt == 0 || dt > 100) dt = 16;
++                        carry += (1000.0 / 33.0) * dt / 1000.0;
++                        int step = static_cast<int>(carry);
++                        carry -= step;
++                        if (step > 0) {
++                            int dx = 0, dy = 0;
++                            if (axis == 0) dx = dir * step * 32;
++                            else if (axis == 1) dy = dir * step * 24;
++                            else if (axis == 2) { dx = dir * step * 32; dy = dir * step * 24; }
++                            else { dx = dir * step * 32; dy = -dir * step * 24; }
++                            int rc = mapScrollPixels(dx, dy);
++                            if (rc == -1) dir = -dir;
++                        }
++                    }
++                }
++            }
++        }
++    }
++
++    // TEMP TEST HOOK (not committed): FALLOUT_AUTOGAME=1 walks from the
++    // main menu into a fresh game; FALLOUT_AUTOSCROLL=1 then parks the
++    // cursor at alternating screen edges (35s..75s) so active map
++    // scrolling can be measured.
++    {
++        static int autoPhase = 0;
++        if (autoPhase >= 0 && getenv("FALLOUT_AUTOGAME") != nullptr) {
++            unsigned int t = SDL_GetTicks();
++            if (autoPhase == 0 && t > 6000) {
++                enqueueInputEvent('n');
++                autoPhase = 1;
++            } else if (autoPhase == 1 && t > 10000) {
++                enqueueInputEvent('t');
++                autoPhase = 2;
++            } else if (autoPhase >= 2 && autoPhase < 30 && t > 12000 + (autoPhase - 2) * 800) {
++                // Spam SPACE every 800ms through 33s: skips the char screen
++                // AND the elder.mve intro whenever it appears (its poll
++                // loop ticks this hook and picks up the queued key). A
++                // minimized/bench run shifts the movie later, so a fixed
++                // burst that ends early would miss it.
++                enqueueInputEvent(32);
++                autoPhase++;
++            } else if (autoPhase == 30) {
++                if (getenv("FALLOUT_AUTOSCROLL") == nullptr) {
++                    autoPhase = -1;
++                } else if (t > 35000) {
++                    autoPhase = 31;
++                }
++            } else if (autoPhase == 31) {
++                if (t > 75000) {
++                    autoPhase = -1;
++                } else {
++                    bool right = (t / 3000) % 2 == 0;
++                    mapScrollPixels(right ? 4 : -4, 0);
++                    sharedFpsLimiter.notifyActivity();
++                }
++            }
++        }
++    }
++
+     // Speech and lip sync stream, sync and STOP from this loop. While the
+     // player listens without touching the screen the idle limiter would run
+     // it at 15fps, making phoneme sync and the end-of-line stop 66-200ms
+diff --git a/src/input.cc b/src/input.cc
+index 8ff96873..eb748875 100644
+--- a/src/input.cc
++++ b/src/input.cc
+@@ -1,4 +1,7 @@
+ #include "input.h"
++#include "prof_tmp.h"
++
++#include <stdlib.h>
+ #include "art.h"
+ #include "fps_limiter.h"
+ 
+@@ -142,6 +145,14 @@ static void inputHandleMouseClickHook(int sdlButton, bool pressed)
+ 
+ static void inputHandleProgramActivationChange(bool isActive)
+ {
++    // TEMP BENCH (not committed): a profiling run must keep behaving as
++    // the focused app even when the window is off-screen or behind other
++    // windows - ignore every deactivation so no focus-gated path (movie
++    // sync, audio, present, idle tier) ever engages.
++    if (!isActive && getenv("FALLOUT_BENCH") != nullptr) {
++        return;
++    }
++
+     if (gProgramIsActive == isActive) {
+         return;
+     }
+@@ -232,7 +243,7 @@ int inputGetInput()
+ 
+     _GNW95_process_message();
+ 
+-    if (!gProgramIsActive) {
++    if (!gProgramIsActive && getenv("FALLOUT_BENCH") == nullptr) {
+         _GNW95_lost_focus();
+     }
+ 
+@@ -259,6 +270,8 @@ void get_input_position(int* x, int* y)
+ // 0x4C8BDC
+ void _process_bk()
+ {
++    ProfScope profScopePbk(PROF_PBK);
++    gProfLoops++;
+     int v1;
+ 
+     tickersExecute();
+@@ -350,6 +363,7 @@ void inputEventQueueReset()
+ // 0x4C8D1C
+ void tickersExecute()
+ {
++    ProfScope profScopeTickers(PROF_TICKERS);
+     if (gRunLoopDisabled) {
+         return;
+     }
+@@ -359,6 +373,7 @@ void tickersExecute()
+     TickerListNode* curr = gTickerListHead;
+     TickerListNode** currPtr = &(gTickerListHead);
+ 
++    int profIdx = 0;
+     while (curr != nullptr) {
+         TickerListNode* next = curr->next;
+         if (curr->flags & 1) {
+@@ -366,7 +381,17 @@ void tickersExecute()
+ 
+             internal_free(curr);
+         } else {
+-            curr->proc();
++            if (profIdx < 32) {
++                gProfTickIdx = profIdx;
++                gProfTickProc[profIdx] = reinterpret_cast<void*>(curr->proc);
++                double profT0 = profNow();
++                curr->proc();
++                gProfTickMs[profIdx] += profNow() - profT0;
++                gProfTickIdx = -1;
++            } else {
++                curr->proc();
++            }
++            profIdx++;
+             currPtr = &(curr->next);
+         }
+         curr = next;
+diff --git a/src/interpreter.cc b/src/interpreter.cc
+index 2f01df14..bb523bfb 100644
+--- a/src/interpreter.cc
++++ b/src/interpreter.cc
+@@ -1,4 +1,5 @@
+ #include "interpreter.h"
++#include "prof_tmp.h"
+ 
+ #include <assert.h>
+ #include <limits.h>
+@@ -2729,7 +2730,14 @@ void programInterpret(Program* program, int numInstructions)
+             programFatalError("Undefined opcode %x.", opcode);
+         }
+ 
+-        handler(program);
++        if (gProfInCrit) {
++            double profOpT0 = profNow();
++            handler(program);
++            gProfOpMs[opcodeIndex] += profNow() - profOpT0;
++            gProfOpCalls[opcodeIndex]++;
++        } else {
++            handler(program);
++        }
+     }
+ 
+     if ((program->flags & PROGRAM_FLAG_EXITED) != 0) {
+@@ -3069,12 +3077,16 @@ void _updatePrograms()
+     // global and normal scripts. Global scripts in CE are not part of program
+     // list, so we need a separate call to continue execution and process
+     // delayed/conditional proc calls.
+-    sfall_gl_scr_update(interpreterCpuBurstSize);
++    {
++        ProfScope profScopeSfall(PROF_SCR_SFALL);
++        sfall_gl_scr_update(interpreterCpuBurstSize);
++    }
+ 
+     ProgramListNode* curr = gInterpreterProgramListHead;
+     while (curr != nullptr) {
+         ProgramListNode* next = curr->next;
+         if (curr->program != nullptr) {
++            gProfProgCount++;
+             programInterpret(curr->program, interpreterCpuBurstSize);
+ 
+             if (curr->program->exited) {
+@@ -3083,6 +3095,7 @@ void _updatePrograms()
+         }
+         curr = next;
+     }
++    ProfScope profScopeEvt(PROF_SCR_EVT);
+     doEvents();
+     intLibUpdate();
+ }
+diff --git a/src/light.cc b/src/light.cc
+index ce300810..a83e0658 100644
+--- a/src/light.cc
++++ b/src/light.cc
+@@ -88,6 +88,7 @@ int lightGetTrueTileIntensity(int elevation, int tile)
+ // 0x47A9EC light_set_tile
+ void lightSetTileIntensity(int elevation, int tile, int intensity)
+ {
++    { extern int gProfLightUpdates; gProfLightUpdates++; }
+     if (!elevationIsValid(elevation)) {
+         return;
+     }
+diff --git a/src/map.cc b/src/map.cc
+index 849fefa8..c56d7313 100644
+--- a/src/map.cc
++++ b/src/map.cc
+@@ -1,4 +1,6 @@
+ #include "map.h"
++#include "prof_tmp.h"
++#include <stdlib.h>
+ 
+ #include "mouse.h"
+ 
+@@ -1486,7 +1488,9 @@ err:
+         debugPrint("\n   Error: scr_load_all_scripts failed!");
+     }
+ 
+-    scriptsExecMapEnterProc();
++    if (getenv("FALLOUT_BENCH") == nullptr) {  // TEMP BENCH: no arrival scripts
++        scriptsExecMapEnterProc();
++    }
+     scriptsExecMapUpdateProc();
+     tileEnable();
+ 
+@@ -2005,8 +2009,13 @@ static void isoWindowRefreshRect(Rect* rect)
+     Rect clipped;
+     rectCopy(&clipped, rect);
+     if (!renderIsoClipWorldRectToView(&clipped)) {
++        gProfRrOut++;
+         return;
+     }
++    gProfRrIn++;
++    if (gProfTickIdx >= 0 && gProfTickIdx < 32) {
++        gProfTickRr[gProfTickIdx]++;
++    }
+     renderMarkWorldDirty(&clipped);
+     windowRefreshRect(gIsoWindow, &clipped);
+ }
+@@ -2014,6 +2023,7 @@ static void isoWindowRefreshRect(Rect* rect)
+ // 0x483EE4 map_scroll_refresh_game
+ static void isoWindowRefreshRectGame(Rect* rect)
+ {
++    ProfScope profScopeRender(PROF_RENDER);
+     Rect rectToUpdate;
+     if (rectIntersection(rect, &gWorldRect, &rectToUpdate) == -1) {
+         return;
+diff --git a/src/object.cc b/src/object.cc
+index 8456c8d1..980917b0 100644
+--- a/src/object.cc
++++ b/src/object.cc
+@@ -1,4 +1,5 @@
+ #include "object.h"
++#include <stdlib.h>
+ 
+ #include <assert.h>
+ #include <string.h>
+@@ -1438,7 +1439,8 @@ int objectSetLocation(Object* obj, int tile, int elevation, Rect* rect)
+ 
+             if (elevation == elev) {
+                 if (objectTypeFromFid(obj->fid) == OBJ_TYPE_MISC) {
+-                    if (isExitGridPid(obj->pid)) {
++                    // TEMP BENCH (not committed): a profiling run never wants the world map.
++                    if (isExitGridPid(obj->pid) && getenv("FALLOUT_BENCH") == nullptr) {
+                         if ((obj->flags & OBJECT_HIDDEN) != OBJECT_NONE) {
+                             objectListNode = objectListNode->next;
+                             continue;
+diff --git a/src/scripts.cc b/src/scripts.cc
+index 408f1333..610ada27 100644
+--- a/src/scripts.cc
++++ b/src/scripts.cc
+@@ -1,4 +1,5 @@
+ #include "scripts.h"
++#include "prof_tmp.h"
+ 
+ #include <assert.h>
+ #include <stdio.h>
+@@ -966,6 +967,7 @@ static Program* scriptsCreateProgramByName(const char* name)
+ // 0x4A3C2C
+ static void _doBkProcesses()
+ {
++    ProfScope profScopeScript(PROF_SCRIPT);
+     if (!gBackgroundProcessTimeInitialized) {
+         gLastBackgroundProcessTime = _get_bk_time();
+         gBackgroundProcessTimeInitialized = 1;
+@@ -978,6 +980,7 @@ static void _doBkProcesses()
+         // NOTE: There is a loop at 0x4A3C64, consisting of one iteration, going
+         // downwards from 1.
+         for (int index = 0; index < 1; index++) {
++            ProfScope profScopeUpd(PROF_SCR_UPD);
+             _updatePrograms();
+         }
+     }
+@@ -988,8 +991,14 @@ static void _doBkProcesses()
+         // SFALL: Fix to prevent the execution of critter_p_proc and game events
+         // when playing movies.
+         if (!_gdialogActive() && !gameMovieIsPlaying()) {
+-            _script_chk_critters();
+-            _script_chk_timed_events();
++            {
++                ProfScope profScopeCrit(PROF_SCR_CRIT);
++                _script_chk_critters();
++            }
++            {
++                ProfScope profScopeTimed(PROF_SCR_TIMED);
++                _script_chk_timed_events();
++            }
+         }
+     }
+ }
+@@ -1029,7 +1038,22 @@ static void _script_chk_critters()
+ 
+             if (scriptListExtent != nullptr) {
+                 Script* script = &(scriptListExtent->scripts[scriptIndex]);
++                double profCritT0 = profNow();
++                int profCritIndex = script->index & 0xFFFFFF;
++                gProfInCrit = true;
+                 scriptExecProc(script->sid, proc);
++                gProfInCrit = false;
++                double profCritD = profNow() - profCritT0;
++                gProfCritCalls++;
++                gProfCritScriptCount = scriptsCount;
++                if (profCritIndex >= 0 && profCritIndex < 4096) {
++                    gProfCritByIdxMs[profCritIndex] += profCritD;
++                    gProfCritByIdxCalls[profCritIndex]++;
++                }
++                if (profCritD > gProfCritMaxMs) {
++                    gProfCritMaxMs = profCritD;
++                    gProfCritMaxIndex = profCritIndex;
++                }
+             }
+         }
+     }
+diff --git a/src/svga.cc b/src/svga.cc
+index 4c1dd589..7a1f13cf 100644
+--- a/src/svga.cc
++++ b/src/svga.cc
+@@ -1,4 +1,5 @@
+ #include "svga.h"
++#include "prof_tmp.h"
+ 
+ #include <limits.h>
+ #include <stdio.h>
+@@ -855,6 +856,12 @@ static int gIsoShiftsSincePresent = 0;
+ // unscaled. Range 1.0 .. 1.5, snapped at both ends.
+ static double gIsoZoom = 1.0;
+ static bool gIsoZoomDirty = false;
++int gProfMap = -1;   // TEMP profiling: current map id
++int gProfAxis = -1;  // TEMP profiling: 0=X 1=Y 2=diag 3=anti
++int gProfRefreshCalls = 0;
++long long gProfRefreshArea = 0;
++int gProfLightUpdates = 0;
++int gProfArtMisses = 0;
+ 
+ static int isoRingWrap(int value, int size)
+ {
+@@ -1422,6 +1429,7 @@ void renderMarkDirtyAmbient(const SDL_Rect* rect)
+ 
+ void renderPresent()
+ {
++    ProfScope profScopePresent(PROF_PRESENT);
+     if (gSdlRenderer == nullptr || gSdlTexture == nullptr || gSdlTextureSurface == nullptr) {
+         return;
+     }
+@@ -1432,12 +1440,13 @@ void renderPresent()
+     if (gDirtyRectCount == 0 && !gIsoZoomDirty) {
+         return;
+     }
++    long long profBytes0 = gStatUploadBytes;  // TEMP profiling
+ 
+     // Palette fades and window drags present without going through
+     // inputGetInput, so they would keep touching the GPU while the app is
+     // backgrounded (iOS terminates for that). Keep the marks - the first
+     // present after resume repaints everything that changed.
+-    if (!gProgramIsActive) {
++    if (!gProgramIsActive && getenv("FALLOUT_BENCH") == nullptr) {
+         return;
+     }
+ 
+@@ -1481,6 +1490,7 @@ void renderPresent()
+         if (gSdlSurface != nullptr) {
+             SDL_Rect src = r;
+             SDL_Rect dst = r;
++            ProfScope profScopeBlit(PROF_PR_BLIT);
+             SDL_BlitSurface(gSdlSurface, &src, gSdlTextureSurface, &dst);
+         }
+ 
+@@ -1508,8 +1518,11 @@ void renderPresent()
+             + static_cast<size_t>(r.y) * gSdlTextureSurface->pitch
+             + static_cast<size_t>(r.x) * gSdlTextureSurface->format->BytesPerPixel;
+ 
+-        if (classicTextureNeeded && SDL_UpdateTexture(gSdlTexture, &r, pixels, gSdlTextureSurface->pitch) != 0) {
+-            uploadFailed = true;
++        {
++            ProfScope profScopeUpc(PROF_PR_UPC);
++            if (classicTextureNeeded && SDL_UpdateTexture(gSdlTexture, &r, pixels, gSdlTextureSurface->pitch) != 0) {
++                uploadFailed = true;
++            }
+         }
+ 
+         if (isoMode && !ringSawFullRect
+@@ -1519,6 +1532,7 @@ void renderPresent()
+             // Partial ring updates come from the world-space list alone
+             // (every ambient mark mirrors into it unclipped).
+             SDL_Rect fullRing = { 0, 0, gIsoRingW, gIsoRingH };
++            ProfScope profScopeRingFull(PROF_PR_RING);
+             if (!isoRingUpload(fullRing)) {
+                 uploadFailed = true;
+             }
+@@ -1534,6 +1548,7 @@ void renderPresent()
+     }
+     // World-space dirt (margins included) reaches the ring directly.
+     if (isoMode) {
++        gProfPrWorldRects += gWorldDirtyRectCount;
+         SDL_Rect ringArea = { 0, 0, gIsoRingW, gIsoRingH };
+         for (int i = 0; i < gWorldDirtyRectCount; i++) {
+             if (ringSawFullRect) {
+@@ -1541,6 +1556,7 @@ void renderPresent()
+             }
+             SDL_Rect part;
+             if (SDL_IntersectRect(&gWorldDirtyRects[i], &ringArea, &part) == SDL_TRUE) {
++                ProfScope profScopeRingPart(PROF_PR_RING);
+                 if (!isoRingUpload(part)) {
+                     uploadFailed = true;
+                 }
+@@ -1557,6 +1573,9 @@ void renderPresent()
+ 
+     sharedFpsLimiter.notifyPresent();
+     gStatPresents++;
++    gProfPresents++;
++    gProfPrRects += gDirtyRectCount;
++    double profComposeT0 = profNow();
+     SDL_RenderClear(gSdlRenderer);
+     if (isoMode && gIsoRingContentValid) {
+         bool zoomed = gIsoZoom > 1.001;
+@@ -1718,8 +1737,38 @@ void renderPresent()
+     // render movie SDL texture if present
+     // render movie SDL texture if present
+     movieRenderDirectOverlay();
++    gProfMs[PROF_PR_COMPOSE] += profNow() - profComposeT0;
+ 
+-    SDL_RenderPresent(gSdlRenderer);
++    {
++        ProfScope profScopeFlip(PROF_PR_FLIP);
++        SDL_RenderPresent(gSdlRenderer);
++    }
++    if (gProfMap >= 0 && gProfAxis >= 0) {
++        long long uplNow = gStatUploadBytes - profBytes0;
++        int fullup = (uplNow >= 1500 * 1024) ? 1 : 0;
++        static unsigned int profPrevT = 0;
++        unsigned int profT = SDL_GetTicks();
++        fprintf(stderr, "[p] m=%d a=%d u=%lld f=%d d=%d s=%d dt=%u rc=%d ra=%lld lu=%d am=%d\n",
++            gProfMap, gProfAxis, uplNow / 1024, fullup, gDirtyRectCount, gIsoShiftsSincePresent,
++            profPrevT ? profT - profPrevT : 0, gProfRefreshCalls, gProfRefreshArea / 1024, gProfLightUpdates, gProfArtMisses);
++        profPrevT = profT;
++        gProfRefreshCalls = 0; gProfRefreshArea = 0; gProfLightUpdates = 0; gProfArtMisses = 0;
++        // Seam check: one frame per axis on Klamath (map 9).
++        if (gProfMap == 9) {
++            static int shotMask = 0;
++            if ((shotMask & (1 << gProfAxis)) == 0) {
++                shotMask |= 1 << gProfAxis;
++                int sw = gSdlTextureSurface->w, sh = gSdlTextureSurface->h;
++                unsigned char* rgb = (unsigned char*)malloc((size_t)sw * sh * 3);
++                if (rgb && SDL_RenderReadPixels(gSdlRenderer, nullptr, SDL_PIXELFORMAT_RGB24, rgb, sw * 3) == 0) {
++                    char nm[48]; snprintf(nm, sizeof(nm), "seam_a%d.ppm", gProfAxis);
++                    FILE* zf = fopen(nm, "wb");
++                    if (zf) { fprintf(zf, "P6 %d %d 255 ", sw, sh); fwrite(rgb, 1, (size_t)sw * sh * 3, zf); fclose(zf); }
++                }
++                free(rgb);
++            }
++        }
++    }
+     gIsoZoomDirty = false;
+     gIsoShiftsSincePresent = 0;
+ 
+diff --git a/src/tile.cc b/src/tile.cc
+index 8128a600..1870175d 100644
+--- a/src/tile.cc
++++ b/src/tile.cc
+@@ -1,4 +1,5 @@
+ #include "tile.h"
++#include "prof_tmp.h"
+ 
+ 
+ #include <assert.h>
+@@ -975,7 +976,15 @@ static void tileRefreshMapper(Rect* rect, int elevation)
+ // 0x4B15E8 refresh_game
+ static void tileRefreshGame(Rect* rect, int elevation)
+ {
++    ProfScope profScopeTileRef(PROF_TILEREF);
++    gProfTileRefCalls++;
++    gProfTileRefArea += static_cast<long long>(rect->right - rect->left + 1) * (rect->bottom - rect->top + 1);
+     Rect rectToUpdate;
++    {
++        extern int gProfRefreshCalls; extern long long gProfRefreshArea;
++        gProfRefreshCalls++;
++        gProfRefreshArea += (long long)(rect->right - rect->left + 1) * (rect->bottom - rect->top + 1);
++    }
+ 
+     if (rectIntersection(rect, &gTileWindowRect, &rectToUpdate) == -1) {
+         return;
+diff --git a/src/window_manager.cc b/src/window_manager.cc
+index d378c8c2..31ee372f 100644
+--- a/src/window_manager.cc
++++ b/src/window_manager.cc
+@@ -1,4 +1,5 @@
+ #include "window_manager.h"
++#include "prof_tmp.h"
+ 
+ #include <string.h>
+ 
+@@ -807,6 +808,7 @@ void windowRefreshRect(int win, const Rect* rect)
+ // 0x4D6FD8
+ void _GNW_win_refresh(Window* window, Rect* rect, unsigned char* dest)
+ {
++    ProfScope profScopeWref(PROF_WREF);
+     // dest is only used when refreshing the portion of the screen containing the cursor (which is subsequently drawn on the buffer)
+ 
+     RectListNode *refreshRectList, *clipRect, *screenRect, *nextRect;

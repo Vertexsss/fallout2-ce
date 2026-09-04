@@ -41,6 +41,35 @@ follow_hero=0
 master_volume=0 music_volume=0 sndfx_volume=0 speech_volume=0
 ```
 
+## Main-loop phase profiler
+
+`bench_prof.patch` is `bench.patch` PLUS the phase-profiler hooks (apply it
+INSTEAD of `bench.patch`, on a clean tree, after copying `prof_tmp.h` into
+`src/`):
+
+```
+cp tools/harness/prof_tmp.h src/
+git apply tools/harness/bench_prof.patch
+<build>
+python tools/harness/cfgmode.py bench          # bench cfg (edge scroll/follow/volumes off)
+cd <game dir>
+SDL_VIDEO_WINDOW_POS=3000,3000 FALLOUT_BENCH=1 FALLOUT_AUTOGAME=1 FALLOUT_PHASEBENCH=42 ./fallout2-ce.exe 2> phase42.txt
+python tools/harness/phases.py phase42.txt     # STATIC vs PAN window averages
+python tools/harness/cfgmode.py play
+```
+
+`FALLOUT_PHASEBENCH=<mapid>` teleports at 34s, sits still until 54s,
+auto-pans (PAN button) until 74s and exits. Every second a `[t]` line
+carries ms/s per phase: tickers (`anim`, `scr`, `gm`, `cyc`, `snd`), scene
+re-render (`tileref`, `render` = scroll strips), window composite (`wref`),
+`present` split into blit/classic upload/ring upload/compose/flip, `sleep`,
+plus counters (on/off-screen animation ticks, refresh rects in/out of the
+crop, pathfinder calls). At exit: `[cs]` = the most expensive critter scripts
+(index into scripts.lst), `[op]` = the most expensive script opcodes inside
+critter procs, `[tk]` = per-ticker time and refresh counts over the static
+window, `[gm]` = gameMouseRefresh branch counters. Set `show_fps=0` in the
+bench cfg or the overlay redraw counts as a present every frame.
+
 ## Hard-won facts
 
 - Unfocused, the game **freezes**: `inputGetInput` spins in

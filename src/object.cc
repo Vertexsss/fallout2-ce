@@ -2420,8 +2420,10 @@ bool _obj_occupied(int tile, int elevation)
     return false;
 }
 
-// 0x48B848 obj_blocking_at
-Object* _obj_blocking_at(Object* excludeObj, int tile, int elev)
+// The own-tile half of _obj_blocking_at: objects standing ON the tile, no
+// multihex-neighbor scan. The pathfinder calls it on tiles where that scan
+// provably finds nothing (see objectPathBlockersCollect).
+Object* _obj_blocking_at_tile_only(Object* excludeObj, int tile, int elev)
 {
     ObjectListNode* objectListNode;
     Object* obj;
@@ -2444,6 +2446,24 @@ Object* _obj_blocking_at(Object* excludeObj, int tile, int elev)
             }
         }
         objectListNode = objectListNode->next;
+    }
+
+    return nullptr;
+}
+
+// 0x48B848 obj_blocking_at
+Object* _obj_blocking_at(Object* excludeObj, int tile, int elev)
+{
+    ObjectListNode* objectListNode;
+    Object* obj;
+
+    if (!hexGridTileIsValid(tile)) {
+        return nullptr;
+    }
+
+    obj = _obj_blocking_at_tile_only(excludeObj, tile, elev);
+    if (obj != nullptr) {
+        return obj;
     }
 
     for (Rotation rotation = ROTATION_FIRST; rotation < ROTATION_COUNT; rotation++) {
@@ -2528,8 +2548,9 @@ Object* _obj_shoot_blocking_at(Object* excludeObj, int tile, int elev)
     return nullptr;
 }
 
-// 0x48BA20 obj_ai_blocking_at
-Object* _obj_ai_blocking_at(Object* excludeObj, int tile, int elevation)
+// The own-tile half of _obj_ai_blocking_at (same _moveBlockObj bookkeeping),
+// no multihex-neighbor scan - see _obj_blocking_at_tile_only.
+Object* _obj_ai_blocking_at_tile_only(Object* excludeObj, int tile, int elevation)
 {
     if (!hexGridTileIsValid(tile)) {
         return nullptr;
@@ -2557,6 +2578,62 @@ Object* _obj_ai_blocking_at(Object* excludeObj, int tile, int elevation)
         objectListNode = objectListNode->next;
     }
 
+    return nullptr;
+}
+
+// For pathfinderFindPath: sets a bit for every tile whose multihex-neighbor
+// scan in _obj_blocking_at / _obj_ai_blocking_at could see a multihex object
+// of this elevation (every tile T with tileGetTileInDirection(T, r, 1) landing
+// on such an object's tile - tested with the real function, so edge-tile
+// quirks are covered), and reports whether the elevation holds radioactive
+// goo. Any multihex object counts regardless of its other flags: the mark
+// only routes the tile back to the full callback.
+void objectPathBlockersCollect(int elevation, unsigned char* neighborMarks, bool* hasGoo)
+{
+    *hasGoo = false;
+    for (int tile = 0; tile < HEX_GRID_SIZE; tile++) {
+        ObjectListNode* objectListNode = gObjectListHeadByTile[tile];
+        while (objectListNode != nullptr) {
+            Object* object = objectListNode->obj;
+            if (object->elevation == elevation) {
+                if (object->pid >= FIRST_RADIOACTIVE_GOO_PID && object->pid <= LAST_RADIOACTIVE_GOO_PID) {
+                    *hasGoo = true;
+                }
+                if ((object->flags & OBJECT_MULTIHEX) != OBJECT_NONE) {
+                    for (int dy = -1; dy <= 1; dy++) {
+                        for (int dx = -1; dx <= 1; dx++) {
+                            int candidate = tile + dy * HEX_GRID_WIDTH + dx;
+                            if (candidate < 0 || candidate >= HEX_GRID_SIZE) {
+                                continue;
+                            }
+                            for (int rotation = ROTATION_FIRST; rotation < ROTATION_COUNT; rotation++) {
+                                if (tileGetTileInDirection(candidate, static_cast<Rotation>(rotation), 1) == tile) {
+                                    neighborMarks[candidate / 8] |= 1 << (candidate & 7);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            objectListNode = objectListNode->next;
+        }
+    }
+}
+
+// 0x48BA20 obj_ai_blocking_at
+Object* _obj_ai_blocking_at(Object* excludeObj, int tile, int elevation)
+{
+    if (!hexGridTileIsValid(tile)) {
+        return nullptr;
+    }
+
+    Object* object = _obj_ai_blocking_at_tile_only(excludeObj, tile, elevation);
+    if (object != nullptr) {
+        return object;
+    }
+
+    ObjectListNode* objectListNode;
     for (Rotation rotation = ROTATION_FIRST; rotation < ROTATION_COUNT; rotation++) {
         int candidate = tileGetTileInDirection(tile, rotation, 1);
         if (!hexGridTileIsValid(candidate)) {

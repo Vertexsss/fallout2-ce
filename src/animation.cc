@@ -3,6 +3,9 @@
 #include "camera_follow.h"
 
 #include <algorithm>
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
 #include <array>
 #include <cstddef>
 #include <stdio.h>
@@ -291,6 +294,10 @@ typedef struct PathNode {
     Rotation rotation;
     int estimate;
     int cost;
+    // Index of the parent node in the closed list (-1 for the start node).
+    // Every tile is closed at most once, so this names exactly the node the
+    // classic routine found by scanning the closed list for `from`.
+    int parent;
 } PathNode;
 
 // TODO: I don't know what `sad` means, but it's definitely better than
@@ -380,6 +387,129 @@ static unsigned char gPathfinderProcessedTiles[5000];
 
 // 0x562B9C child_path
 static PathNode gOpenPathNodeList[PATH_NODE_CAPACITY];
+
+// Open-set bookkeeping for pathfinderFindPath. The classic routine kept the
+// open nodes in the flat slot array above and, per iteration, (a) scanned
+// every live slot for the first lowest estimate+cost, (b) scanned from slot
+// 0 for the lowest free slot on each insertion and (c) rebuilt the path by
+// scanning the closed list for a tile. On long or failing searches (up to
+// PATH_NODE_CAPACITY nodes) those scans made one call cost milliseconds -
+// measured 2.3 ms per NPC walk request on NCR downtown, the largest CPU
+// consumer of a crowded map. The structures below make the SAME choices:
+// (a) is a heap ordered by (estimate+cost, slot index) - the classic scan
+// picked the lowest slot among equal keys; (b) is a find-first-set over a
+// free-slot bitset; (c) is the parent index stored in the node. Every search
+// therefore expands the same nodes in the same order and returns the same
+// path (verified by a differential run of both implementations).
+static int gPathOpenHeap[PATH_NODE_CAPACITY];
+static int gPathOpenHeapSize;
+static unsigned long long gPathFreeSlots[(PATH_NODE_CAPACITY + 63) / 64];
+static int gPathFreeWordHint;
+static unsigned char gPathMultihexNeighborMarks[5000];
+// Searches shorter than this never pay for the accelerator build.
+static constexpr int kPathAccelThresholdNodes = 48;
+
+static inline int pathOpenKey(int slot)
+{
+    return gOpenPathNodeList[slot].estimate + gOpenPathNodeList[slot].cost;
+}
+
+static inline bool pathOpenBefore(int a, int b)
+{
+    int ka = pathOpenKey(a);
+    int kb = pathOpenKey(b);
+    return ka < kb || (ka == kb && a < b);
+}
+
+static void pathOpenPush(int slot)
+{
+    int i = gPathOpenHeapSize++;
+    while (i > 0) {
+        int p = (i - 1) / 2;
+        if (!pathOpenBefore(slot, gPathOpenHeap[p])) {
+            break;
+        }
+        gPathOpenHeap[i] = gPathOpenHeap[p];
+        i = p;
+    }
+    gPathOpenHeap[i] = slot;
+}
+
+static int pathOpenPop()
+{
+    int top = gPathOpenHeap[0];
+    int last = gPathOpenHeap[--gPathOpenHeapSize];
+    int i = 0;
+    while (true) {
+        int l = 2 * i + 1;
+        if (l >= gPathOpenHeapSize) {
+            break;
+        }
+        int r = l + 1;
+        int c = (r < gPathOpenHeapSize && pathOpenBefore(gPathOpenHeap[r], gPathOpenHeap[l])) ? r : l;
+        if (!pathOpenBefore(gPathOpenHeap[c], last)) {
+            break;
+        }
+        gPathOpenHeap[i] = gPathOpenHeap[c];
+        i = c;
+    }
+    gPathOpenHeap[i] = last;
+    return top;
+}
+
+static inline int pathCtz64(unsigned long long v)
+{
+#if defined(_MSC_VER)
+    unsigned long index;
+    _BitScanForward64(&index, v);
+    return static_cast<int>(index);
+#else
+    return __builtin_ctzll(v);
+#endif
+}
+
+// Slot 0 holds the start node; every other slot starts free.
+static void pathOpenReset()
+{
+    constexpr int words = (PATH_NODE_CAPACITY + 63) / 64;
+    for (int w = 0; w < words; w++) {
+        gPathFreeSlots[w] = ~0ull;
+    }
+    gPathFreeSlots[0] &= ~1ull;
+    constexpr int tailBits = PATH_NODE_CAPACITY % 64;
+    if (tailBits != 0) {
+        gPathFreeSlots[words - 1] &= (1ull << tailBits) - 1;
+    }
+    gPathFreeWordHint = 0;
+    gPathOpenHeapSize = 0;
+    pathOpenPush(0);
+}
+
+// Lowest free slot, or -1 when all PATH_NODE_CAPACITY slots are live.
+static int pathFreeSlotTake()
+{
+    constexpr int words = (PATH_NODE_CAPACITY + 63) / 64;
+    for (int w = gPathFreeWordHint; w < words; w++) {
+        unsigned long long word = gPathFreeSlots[w];
+        if (word != 0) {
+            int bit = pathCtz64(word);
+            gPathFreeSlots[w] = word & (word - 1);
+            gPathFreeWordHint = w;
+            return w * 64 + bit;
+        }
+        gPathFreeWordHint = w + 1;
+    }
+    return -1;
+}
+
+static inline void pathFreeSlotRelease(int slot)
+{
+    int w = slot / 64;
+    gPathFreeSlots[w] |= 1ull << (slot % 64);
+    if (w < gPathFreeWordHint) {
+        gPathFreeWordHint = w;
+    }
+}
 
 // 0x56C7DC curr_anim_counter
 static int gAnimationDescriptionCurrentIndex;
@@ -1833,10 +1963,24 @@ int pathfinderFindPath(Object* object, int from, int to, unsigned char* rotation
     gOpenPathNodeList[0].rotation = ROTATION_FIRST;
     gOpenPathNodeList[0].estimate = _tile_idistance(from, to);
     gOpenPathNodeList[0].cost = 0;
+    gOpenPathNodeList[0].parent = -1;
 
-    for (int index = 1; index < PATH_NODE_CAPACITY; index += 1) {
-        gOpenPathNodeList[index].tile = -1;
+    pathOpenReset();
+
+    // Exact accelerators for long searches, built lazily below: on tiles
+    // where no multihex object can be adjacent the callbacks' neighbor scan
+    // is skipped (own-tile half only), and the goo penalty scan is skipped
+    // when the elevation holds no goo. Both facts come from one walk of the
+    // elevation's objects, so every callback that could return an object is
+    // still made, in the same order, with the same result.
+    PathBuilderCallback* tileOnlyCallback = nullptr;
+    if (callback == _obj_blocking_at) {
+        tileOnlyCallback = _obj_blocking_at_tile_only;
+    } else if (callback == _obj_ai_blocking_at) {
+        tileOnlyCallback = _obj_ai_blocking_at_tile_only;
     }
+    bool accelReady = false;
+    bool elevationHasGoo = true;
 
     int toScreenX;
     int toScreenY;
@@ -1847,28 +1991,15 @@ int pathfinderFindPath(Object* object, int from, int to, unsigned char* rotation
     PathNode temp;
 
     while (1) {
-        int v63 = -1;
+        // The live node with the lowest estimate+cost; among equals the
+        // lowest slot index, as the classic slot scan chose.
+        int v63 = pathOpenPop();
 
-        PathNode* prev = nullptr;
-        int v12 = 0;
-        for (int index = 0; v12 < openPathNodeListLength; index += 1) {
-            PathNode* curr = &(gOpenPathNodeList[index]);
-            if (curr->tile != -1) {
-                v12++;
-                if (v63 == -1 || (curr->estimate + curr->cost) < (prev->estimate + prev->cost)) {
-                    prev = curr;
-                    v63 = index;
-                }
-            }
-        }
-
-        PathNode* curr = &(gOpenPathNodeList[v63]);
-
-        memcpy(&temp, curr, sizeof(temp));
+        memcpy(&temp, &(gOpenPathNodeList[v63]), sizeof(temp));
 
         openPathNodeListLength -= 1;
 
-        curr->tile = -1;
+        pathFreeSlotRelease(v63);
 
         if (temp.tile == to) {
             if (openPathNodeListLength == 0) {
@@ -1877,10 +2008,17 @@ int pathfinderFindPath(Object* object, int from, int to, unsigned char* rotation
             break;
         }
 
+        int parentIndex = closedPathNodeListLength;
         PathNode* curr1 = &(gClosedPathNodeList[closedPathNodeListLength]);
         memcpy(curr1, &temp, sizeof(temp));
 
         closedPathNodeListLength += 1;
+
+        if (!accelReady && closedPathNodeListLength == kPathAccelThresholdNodes) {
+            memset(gPathMultihexNeighborMarks, 0, sizeof(gPathMultihexNeighborMarks));
+            objectPathBlockersCollect(object->elevation, gPathMultihexNeighborMarks, &elevationHasGoo);
+            accelReady = true;
+        }
 
         if (closedPathNodeListLength == PATH_NODE_CAPACITY) {
             // Search path node capacity exhausted
@@ -1899,7 +2037,10 @@ int pathfinderFindPath(Object* object, int from, int to, unsigned char* rotation
             }
 
             if (tile != to) {
-                Object* v24 = callback(object, tile, object->elevation);
+                Object* v24 = (accelReady && tileOnlyCallback != nullptr
+                                  && (gPathMultihexNeighborMarks[tile / 8] & (1 << (tile & 7))) == 0)
+                    ? tileOnlyCallback(object, tile, object->elevation)
+                    : callback(object, tile, object->elevation);
                 if (v24 != nullptr) {
                     // SFALL: Fix pathing to the center tile of multihex
                     // objects. When the target object blocks an adjacent tile,
@@ -1913,14 +2054,9 @@ int pathfinderFindPath(Object* object, int from, int to, unsigned char* rotation
                 }
             }
 
-            int v25 = 0;
-            for (; v25 < PATH_NODE_CAPACITY; v25++) {
-                if (gOpenPathNodeList[v25].tile == -1) {
-                    break;
-                }
-            }
-
-            if (v25 == PATH_NODE_CAPACITY) {
+            // The lowest free slot, as the classic scan from slot 0 found.
+            int v25 = pathFreeSlotTake();
+            if (v25 == -1) {
                 return 0;
             }
 
@@ -1936,6 +2072,7 @@ int pathfinderFindPath(Object* object, int from, int to, unsigned char* rotation
             v27->tile = tile;
             v27->from = temp.tile;
             v27->rotation = rotation;
+            v27->parent = parentIndex;
 
             int newX;
             int newY;
@@ -1948,7 +2085,7 @@ int pathfinderFindPath(Object* object, int from, int to, unsigned char* rotation
                 v27->cost += 10;
             }
 
-            if (isCritter) {
+            if (isCritter && (!accelReady || elevationHasGoo)) {
                 Object* o = objectFindFirstAtLocation(object->elevation, v27->tile);
                 while (o != nullptr) {
                     if (o->pid >= FIRST_RADIOACTIVE_GOO_PID && o->pid <= LAST_RADIOACTIVE_GOO_PID) {
@@ -1965,6 +2102,9 @@ int pathfinderFindPath(Object* object, int from, int to, unsigned char* rotation
                     }
                 }
             }
+
+            // Key (estimate + cost) is final now.
+            pathOpenPush(v25);
         }
 
         if (openPathNodeListLength == 0) {
@@ -1985,13 +2125,7 @@ int pathfinderFindPath(Object* object, int from, int to, unsigned char* rotation
                 v39 += 1;
             }
 
-            int j = 0;
-            while (gClosedPathNodeList[j].tile != temp.from) {
-                j++;
-            }
-
-            PathNode* v36 = &(gClosedPathNodeList[j]);
-            memcpy(&temp, v36, sizeof(temp));
+            memcpy(&temp, &(gClosedPathNodeList[temp.parent]), sizeof(temp));
         }
 
         if (rotations != nullptr) {

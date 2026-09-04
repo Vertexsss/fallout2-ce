@@ -40,8 +40,15 @@ struct OverlayButton {
 };
 
 OverlayButton gCfgButton;
+OverlayButton gPanButton;
 bool gShown = false;
 bool gHighlightActive = false;
+
+// Auto-pan benchmark: sweep the camera edge to edge without stopping.
+bool gAutoPanActive = false;
+int gAutoPanDir = 1;        // +1 = east, -1 = west
+double gAutoPanCarry = 0.0; // sub-pixel remainder
+unsigned int gAutoPanLast = 0;
 
 // Edge-of-screen arrow pointing toward the off-screen player.
 int gPointerSize = 30;
@@ -333,6 +340,42 @@ void applyItemOutlines(bool enable)
     tileWindowRefresh();
 }
 
+// Ticker: while enabled, glide the camera horizontally at a steady
+// pixel speed, bouncing off each map edge - an endless, reproducible
+// panning load. Paused whenever the world view is not up (UI screen,
+// combat with the bar hidden), so it never fights a modal.
+void autoPanTick()
+{
+    if (!gAutoPanActive || !gShown || isoIsDisabled()) {
+        gAutoPanLast = 0;
+        return;
+    }
+
+    unsigned int now = getTicks();
+    unsigned int dt = now - gAutoPanLast;
+    gAutoPanLast = now;
+    if (gAutoPanLast == 0 || dt == 0 || dt > 100) {
+        dt = 16;
+    }
+
+    // Same average speed as edge scroll: one tile (32px) per 33ms.
+    double frac = (1000.0 / 33.0) * dt / 1000.0;
+    gAutoPanCarry += frac * 32.0;
+    int step = static_cast<int>(gAutoPanCarry);
+    gAutoPanCarry -= step;
+    if (step <= 0) {
+        return;
+    }
+
+    int rc = mapScrollPixels(gAutoPanDir * step, 0);
+    if (rc == -1) {
+        // Hit the wall - bounce and carry on.
+        gAutoPanDir = -gAutoPanDir;
+        gAutoPanCarry = 0.0;
+    }
+    sharedFpsLimiter.notifyActivity();
+}
+
 void pushShiftEvent(bool down)
 {
     // FO2tweaks' highlighting reads key state via sfall's key_pressed(),
@@ -356,6 +399,8 @@ void touchOverlayInit()
 
     // Top-right corner, below the sfall difficulty indicator line.
     createButton(gCfgButton, screenW - kButtonWidth - kMargin, 36, "CFG", KEY_F11);
+    // Directly below CFG: the auto-pan benchmark toggle.
+    createButton(gPanButton, screenW - kButtonWidth - kMargin, 36 + kButtonHeight + 6, "PAN", kTouchOverlayAutoPanKeyCode);
 
 
     // Size the pointer window for the largest of the 8 scroll cursors.
@@ -378,11 +423,14 @@ void touchOverlayInit()
     gPointerShown = false;
 
     tickersAdd(pointerTick);
+    tickersAdd(autoPanTick);
 }
 
 void touchOverlayFree()
 {
     tickersRemove(pointerTick);
+    tickersRemove(autoPanTick);
+    gAutoPanActive = false;
 
     if (gPointerWindow != -1) {
         windowDestroy(gPointerWindow);
@@ -393,6 +441,10 @@ void touchOverlayFree()
     if (gHighlightActive) {
         pushShiftEvent(false);
         gHighlightActive = false;
+    }
+    if (gPanButton.window != -1) {
+        windowDestroy(gPanButton.window);
+        gPanButton.window = -1;
     }
     if (gCfgButton.window != -1) {
         windowDestroy(gCfgButton.window);
@@ -408,6 +460,9 @@ void touchOverlayShow()
     }
     if (gCfgButton.window != -1) {
         windowShow(gCfgButton.window);
+    }
+    if (gPanButton.window != -1) {
+        windowShow(gPanButton.window);
     }
     gShown = true;
 }
@@ -426,6 +481,9 @@ void touchOverlayHide()
     if (gCfgButton.window != -1) {
         windowHide(gCfgButton.window);
     }
+    if (gPanButton.window != -1) {
+        windowHide(gPanButton.window);
+    }
     pointerHide();
     gShown = false;
 }
@@ -436,6 +494,9 @@ bool touchOverlayContainsPoint(int x, int y)
         return false;
     }
     if (pointInButton(gCfgButton, x, y)) {
+        return true;
+    }
+    if (pointInButton(gPanButton, x, y)) {
         return true;
     }
     return gPointerShown
@@ -453,6 +514,11 @@ bool touchOverlayHandleTap(int x, int y)
         // Route through the regular key path so the modal settings screen
         // opens from the main loop, not from touch handling.
         enqueueInputEvent(KEY_F11);
+        return true;
+    }
+
+    if (pointInButton(gPanButton, x, y)) {
+        touchOverlayToggleAutoPan();
         return true;
     }
 
@@ -476,6 +542,14 @@ void touchOverlayToggleHighlight()
     applyItemOutlines(gHighlightActive);
 }
 
+
+void touchOverlayToggleAutoPan()
+{
+    gAutoPanActive = !gAutoPanActive;
+    gAutoPanLast = 0;
+    gAutoPanCarry = 0.0;
+    paintButton(gPanButton, gAutoPanActive);
+}
 
 void touchOverlayCenterOnDude()
 {

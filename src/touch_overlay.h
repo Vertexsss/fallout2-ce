@@ -16,6 +16,8 @@ namespace fallout {
 constexpr int kTouchOverlayHighlightKeyCode = 2001;
 // Key code posted by the player-pointer arrow: re-center on the player.
 constexpr int kTouchOverlayCenterKeyCode = 2002;
+// Key code posted by the PAN button: toggle the auto-pan benchmark.
+constexpr int kTouchOverlayAutoPanKeyCode = 2003;
 
 void touchOverlayInit();
 void touchOverlayFree();
@@ -33,6 +35,10 @@ void touchOverlayToggleHighlight();
 
 // Centers the view on the player (the pointer arrow's action).
 void touchOverlayCenterOnDude();
+
+// Toggles the auto-pan benchmark: the camera sweeps the map edge to edge
+// forever, for like-for-like battery/perf measurements.
+void touchOverlayToggleAutoPan();
 
 // Releases the highlight if it is on. Called before a world tap is simulated:
 // Shift also modifies movement (walk instead of run), so a held simulated

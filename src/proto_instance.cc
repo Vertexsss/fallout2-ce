@@ -19,6 +19,7 @@
 #include "interface.h"
 #include "interpreter_extra.h"
 #include "item.h"
+#include "light.h"
 #include "map.h"
 #include "message.h"
 #include "object.h"
@@ -1649,6 +1650,78 @@ static int _set_door_state_closed(Object* door, Object* obj2)
     return 0;
 }
 
+// A door that finished opening or closing changes what light passes
+// through it, so the whole light map is rebuilt (vanilla). Vanilla then
+// refreshed the ENTIRE world - on the oversized world window that is a
+// million-pixel repaint plus a full ring upload for every door anywhere on
+// the map, NPC traffic included, and it showed as a stutter during camera
+// pans. Only tiles whose intensity actually changed can render differently
+// (floors, roofs and objects take their light from the tile intensities),
+// so refresh the bounding box of the changed tiles - widened by one floor
+// square, because a square is lit from the hexes around it - plus every
+// object standing on a changed tile (a lit sprite reaches well above its
+// tile). Unchanged tiles produce the same pixels either way (verified pixel
+// by pixel against the full refresh over 80 scripted door toggles on two
+// maps). The door's own frames are refreshed by the callers as before.
+static void doorRebuildLightAndRefresh()
+{
+    static int snapshot[HEX_GRID_SIZE];
+    lightCopyTileIntensities(gElevation, snapshot);
+
+    _obj_rebuild_all_light();
+
+    int minX;
+    int maxX;
+    int minY;
+    int maxY;
+    if (!lightFindChangedTiles(gElevation, snapshot, &minX, &maxX, &minY, &maxY)) {
+        return;
+    }
+
+    Rect dirty;
+    bool haveRect = false;
+    for (int y = minY; y <= maxY; y++) {
+        for (int x = minX; x <= maxX; x++) {
+            int tile = y * HEX_GRID_WIDTH + x;
+            if (!lightTileIntensityDiffers(gElevation, tile, snapshot)) {
+                continue;
+            }
+
+            int screenX;
+            int screenY;
+            tileToScreenXY(tile, &screenX, &screenY);
+            Rect hex = { screenX, screenY, screenX + 31, screenY + 15 };
+            if (haveRect) {
+                rectUnion(&dirty, &hex, &dirty);
+            } else {
+                dirty = hex;
+                haveRect = true;
+            }
+
+            Object* obj = objectFindFirstAtLocation(gElevation, tile);
+            while (obj != nullptr) {
+                Rect objRect;
+                objectGetRect(obj, &objRect);
+                rectUnion(&dirty, &objRect, &dirty);
+                obj = objectFindNextAtLocation();
+            }
+        }
+    }
+
+    if (!haveRect) {
+        return;
+    }
+
+    // One floor square (80x36) of margin: squares are lit from the hexes
+    // around them, roofs likewise.
+    dirty.left -= 80;
+    dirty.top -= 36;
+    dirty.right += 80;
+    dirty.bottom += 36;
+
+    tileWindowRefreshRect(&dirty, gElevation);
+}
+
 // 0x49CB14
 static int _check_door_state(Object* door, Object* obj2)
 {
@@ -1658,8 +1731,7 @@ static int _check_door_state(Object* door, Object* obj2)
             door->flags &= ~OBJECT_OPEN_DOOR;
         }
 
-        _obj_rebuild_all_light();
-        tileWindowRefresh();
+        doorRebuildLightAndRefresh();
 
         if (door->frame == 0) {
             return 0;
@@ -1696,8 +1768,7 @@ static int _check_door_state(Object* door, Object* obj2)
             door->flags |= OBJECT_OPEN_DOOR;
         }
 
-        _obj_rebuild_all_light();
-        tileWindowRefresh();
+        doorRebuildLightAndRefresh();
 
         CacheEntry* artHandle;
         Art* art = artLock(door->fid, &artHandle);

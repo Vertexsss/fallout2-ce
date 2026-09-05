@@ -19,6 +19,9 @@ void lightSetTileIntensity(int elevation, int tile, int intensity);
 void lightIncreaseTileIntensity(int elevation, int tile, int intensity);
 void lightDecreaseTileIntensity(int elevation, int tile, int intensity);
 void lightResetTileIntensity();
+void lightCopyTileIntensities(int elevation, int* dest);
+bool lightTileIntensityDiffers(int elevation, int tile, const int* snapshot);
+bool lightFindChangedTiles(int elevation, const int* snapshot, int* minX, int* maxX, int* minY, int* maxY);
 void lightDecreaseAmbient(int val);
 void lightIncreaseAmbient(int val);
 

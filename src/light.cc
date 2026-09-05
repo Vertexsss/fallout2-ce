@@ -1,6 +1,7 @@
 #include "light.h"
 
 #include <algorithm>
+#include <string.h>
 
 #include "map_defs.h"
 #include "object.h"
@@ -125,6 +126,58 @@ void lightDecreaseTileIntensity(int elevation, int tile, int intensity)
     }
 
     gTileIntensity[elevation][tile] -= intensity;
+}
+
+// Copies the elevation's raw tile intensities (HEX_GRID_SIZE ints) so a
+// caller can find what a light rebuild actually changed.
+void lightCopyTileIntensities(int elevation, int* dest)
+{
+    if (!elevationIsValid(elevation)) {
+        return;
+    }
+
+    memcpy(dest, gTileIntensity[elevation], sizeof(gTileIntensity[elevation]));
+}
+
+bool lightTileIntensityDiffers(int elevation, int tile, const int* snapshot)
+{
+    if (!elevationIsValid(elevation) || !hexGridTileIsValid(tile)) {
+        return false;
+    }
+
+    return gTileIntensity[elevation][tile] != snapshot[tile];
+}
+
+// Hex-grid bounding range of the tiles whose intensity differs from
+// `snapshot`. Returns false when nothing changed.
+bool lightFindChangedTiles(int elevation, const int* snapshot, int* minX, int* maxX, int* minY, int* maxY)
+{
+    if (!elevationIsValid(elevation)) {
+        return false;
+    }
+
+    const int* current = gTileIntensity[elevation];
+    bool changed = false;
+    for (int tile = 0; tile < HEX_GRID_SIZE; tile++) {
+        if (current[tile] == snapshot[tile]) {
+            continue;
+        }
+
+        int x = tile % HEX_GRID_WIDTH;
+        int y = tile / HEX_GRID_WIDTH;
+        if (!changed) {
+            *minX = *maxX = x;
+            *minY = *maxY = y;
+            changed = true;
+        } else {
+            if (x < *minX) *minX = x;
+            if (x > *maxX) *maxX = x;
+            if (y < *minY) *minY = y;
+            if (y > *maxY) *maxY = y;
+        }
+    }
+
+    return changed;
 }
 
 // 0x47AA84 light_reset_tiles
